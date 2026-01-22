@@ -1,0 +1,1009 @@
+const express = require("express");
+const { Op, Sequelize, col, literal, where } = require("sequelize");
+const {
+  createDateTimeSearchConditions,
+} = require("../../../utils/dateTimeSearchConditions");
+const router = express.Router();
+const {
+  ProductList,
+  Product_Tag_Vendor,
+  Vendors,
+  Warehouse,
+  StockManagement,
+  StockManagementProductTagVendor,
+  MasterList,
+  Activity_Log,
+  PurchaseRequest,
+  PurchaseRequestOrderItem,
+  TaxSettings,
+  PurchaseOrder,
+  PurchaseOrderVendorProduct,
+  Receiving,
+  Packaging,
+  ReceivingHistory,
+  ReceivingProductOrder,
+  CompanyProfile,
+  BatchEntryInvoice,
+  SalesInvoice,
+  Customer,
+  BatchEntryMain,
+  PostProduction,
+  SalesInvoiceTagProduct,
+  ScheduleModel,
+  ScheduleInvoiceList,
+  ScheduleProductList,
+  ScheduleDeliver,
+  ReturnProduct,
+  ReturnProductList,
+} = require("../../../db/models/associations");
+const sequelize = require("../../../db/config/sequelize.config");
+const moment = require("moment-timezone");
+const session = require("express-session");
+
+router.use(
+  session({
+    secret: "secret-key",
+    resave: false,
+    saveUninitialized: true,
+  })
+);
+
+router.get("/fetchFiltered", async (req, res) => {
+  const { filterStatus, filterColumn } = req.query;
+
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const offset = (page - 1) * limit;
+
+  let whereClause = { isDeleted: 0 };
+
+  // if (filterColumn) {
+  //   switch (filterColumn) {
+  //     case "scheduleCode":
+  //       whereClause["company_name"] = {
+  //         [Op.like]: `%${searchText}%`,
+  //       };
+  //       break;
+  //     case "company_nature":
+  //       whereClause["company_nature"] = {
+  //         [Op.like]: `%${searchText}%`,
+  //       };
+  //       break;
+  //     case "company_email":
+  //       whereClause["company_email"] = {
+  //         [Op.like]: `%${searchText}%`,
+  //       };
+  //       break;
+  //     case "company_designation":
+  //       whereClause["company_designation"] = {
+  //         [Op.like]: `%${searchText}%`,
+  //       };
+  //       break;
+  //     case "contact_person":
+  //       whereClause = sequelize.where(
+  //         fn("CONCAT", col("fname"), " ", col("lname")),
+  //         {
+  //           [Op.like]: `%${searchText}%`,
+  //         }
+  //       );
+  //       break;
+  //     case "contact":
+  //       whereClause["contact"] = {
+  //         [Op.like]: `%${searchText}%`,
+  //       };
+  //       break;
+  //     case "currency":
+  //       whereClause["$currency.currency_name$"] = {
+  //         [Op.like]: `%${searchText}%`,
+  //       };
+  //       break;
+  //     default:
+  //       whereClause = {
+  //         [Op.or]: [
+  //           ...vendorTableColumn.map((col) => {
+  //             return {
+  //               [col]: {
+  //                 [Op.like]: `%${searchText}%`,
+  //               },
+  //             };
+  //           }),
+  //           sequelize.where(fn("CONCAT", col("fname"), " ", col("lname")), {
+  //             [Op.like]: `%${searchText}%`,
+  //           }),
+  //           {
+  //             "$currency.currency_name$": {
+  //               [Op.like]: `%${searchText}%`,
+  //             },
+  //           },
+  //         ],
+  //       };
+  //       break;
+  //   }
+  // }
+
+  // if (filterDateRequested) {
+  //   // Set the filter date to midnight (start of the day)
+  //   const filterDate = new Date(filterDateRequested);
+  //   filterDate.setHours(0, 0, 0, 0); // Set to 00:00:00
+
+  //   // Create the end of the day date (23:59:59.999)
+  //   const endOfDay = new Date(filterDate);
+  //   endOfDay.setHours(23, 59, 59, 999); // Set to 23:59:59.999
+
+  //   whereClause.createdAt = {
+  //     [Op.between]: [filterDate, endOfDay],
+  //   };
+  // }
+
+  // if (filterDeliveryDate) {
+  //   whereClause.delivery_date = new Date(filterDeliveryDate);
+  // }
+
+  if (filterStatus !== "" && filterStatus) {
+    whereClause.status = filterStatus;
+  }
+
+  const { count, rows } = await ReturnProduct.findAndCountAll({
+    where: whereClause,
+    include: [
+      {
+        model: MasterList,
+        as: "rp_created_by",
+      },
+      {
+        model: MasterList,
+        as: "rp_approved_by",
+      },
+      {
+        model: MasterList,
+        as: "rp_rejected_by",
+      },
+      {
+        model: MasterList,
+        as: "rp_closed_by",
+      },
+    ],
+    order: [["title", "ASC"]],
+    limit: limit,
+    offset: offset,
+  });
+
+  const data = rows.map((row) => row.get({ plain: true }));
+
+  return res.status(200).json({
+    totalItems: count,
+    totalPages: Math.ceil(count / limit),
+    currentPage: page,
+    success: true,
+    data: data,
+  });
+});
+
+router.get("/fetchSearch", async (req, res) => {
+  try {
+    const { searchText, filterColumn, filterStatus } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const whereClause = {};
+
+    if (filterStatus && filterStatus !== "All") {
+      whereClause.status = filterStatus;
+    }
+
+    if (filterColumn !== "all") {
+      if (searchText && searchText.trim() !== "") {
+        const text = searchText.trim();
+        switch (filterColumn) {
+          case "return_product_code":
+            whereClause.return_product_code = { [Op.like]: `%${text}%` };
+            break;
+          case "title":
+            whereClause.title = { [Op.like]: `%${text}%` };
+            break;
+          case "createdAt":
+            whereClause[Op.or] = [
+              ...createDateTimeSearchConditions(
+                "return_product",
+                searchText,
+                "createdAt"
+              ),
+            ];
+            break;
+          case "requestedBy":
+            whereClause[Op.and] = Sequelize.where(
+              Sequelize.literal(
+                `CONCAT(\`rp_created_by\`.fname, ' ', \`rp_created_by\`.lname)`
+              ),
+              { [Op.like]: `%${text}%` }
+            );
+            break;
+          case "approvedBy":
+            whereClause[Op.and] = Sequelize.where(
+              Sequelize.literal(
+                `CONCAT(\`rp_approved_by\`.fname, ' ', \`rp_approved_by\`.lname)`
+              ),
+              { [Op.like]: `%${text}%` }
+            );
+            break;
+        }
+      }
+    } else {
+      if (searchText && searchText.trim() !== "") {
+        // determine if searchtext is a number
+        const text = !isNaN(searchText.trim()[0])
+          ? searchText.trim().replace(/,/g, "")
+          : searchText.trim();
+
+        whereClause[Op.or] = [
+          { return_product_code: { [Op.like]: `%${text}%` } },
+          { title: { [Op.like]: `%${text}%` } },
+
+          // QUANTITY TO BE RETURNED
+          Sequelize.where(Sequelize.col("total_quantity"), {
+            [Op.like]: `%${text}%`,
+          }),
+          // DATE CREATED
+          ...createDateTimeSearchConditions(
+            "return_product",
+            text,
+            "createdAt"
+          ),
+          //REQUESTOR
+          Sequelize.where(
+            Sequelize.literal(
+              `CONCAT(\`rp_created_by\`.fname, ' ', \`rp_created_by\`.lname)`
+            ),
+            { [Op.like]: `%${text}%` }
+          ),
+          //approved
+          Sequelize.where(
+            Sequelize.literal(
+              `CONCAT(\`rp_approved_by\`.fname, ' ', \`rp_approved_by\`.lname)`
+            ),
+            { [Op.like]: `%${text}%` }
+          ),
+          { status: { [Op.like]: `%${text}%` } },
+        ];
+      }
+    }
+
+    const { count, rows } = await ReturnProduct.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: MasterList,
+          as: "rp_created_by",
+        },
+        {
+          model: MasterList,
+          as: "rp_approved_by",
+        },
+        {
+          model: MasterList,
+          as: "rp_rejected_by",
+        },
+        {
+          model: MasterList,
+          as: "rp_closed_by",
+        },
+      ],
+      order: [["title", "ASC"]],
+      limit: limit,
+      offset: offset,
+      distinct: true,
+      subQuery: false,
+    });
+
+    return res.status(200).json({
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      data: rows,
+    });
+  } catch (error) {
+    console.error("Search error:", error);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+});
+
+// fetchData
+router.route("/fetchData").get(async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await ReturnProduct.findAndCountAll({
+      include: [
+        {
+          model: MasterList,
+          as: "rp_created_by",
+        },
+        {
+          model: MasterList,
+          as: "rp_approved_by",
+        },
+        {
+          model: MasterList,
+          as: "rp_rejected_by",
+        },
+        {
+          model: MasterList,
+          as: "rp_closed_by",
+        },
+      ],
+      order: [["title", "ASC"]],
+      limit: limit,
+      offset: offset,
+    });
+
+    const data = rows.map((row) => row.get({ plain: true }));
+
+    return res.status(200).json({
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      success: true,
+      data: data,
+    });
+  } catch (error) {
+    console.error("Detailed error:", error);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+});
+
+// fetch specific return product
+router.route("/fetchReturnProduct/:id").get(async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log("this is the return id", id); // move above the return
+
+    const getReturnProduct = await ReturnProduct.findOne({
+      where: {
+        id,
+        isDeleted: 0,
+      },
+      include: [
+        { model: MasterList, as: "rp_created_by" },
+        { model: MasterList, as: "rp_approved_by" },
+        { model: MasterList, as: "rp_rejected_by" },
+      ],
+    });
+
+    if (!getReturnProduct) {
+      return res.status(404).json({
+        success: false,
+        message: "Return product not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: getReturnProduct.get({ plain: true }),
+    });
+  } catch (error) {
+    console.error("Detailed error:", error);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+});
+
+// fetch specific return product table
+router.route("/fetchReturnProductTable/:id").get(async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await ReturnProductList.findAndCountAll({
+      where: {
+        return_product_id: id,
+      },
+      include: [
+        {
+          model: ScheduleProductList,
+          as: "rpl_schedule_product_list_id",
+          include: [
+            {
+              model: ScheduleModel,
+              as: "spl_schedule_id",
+            },
+            {
+              model: ProductList,
+              as: "schedule_product_list_product_id",
+            },
+            {
+              model: SalesInvoice,
+              as: "spl_schedule_invoice_id",
+              include: [
+                {
+                  model: Customer,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      order: [["createdAt", "ASC"]],
+      limit,
+      offset,
+    });
+
+    const data = rows.map((row) => row.get({ plain: true }));
+
+    return res.status(200).json({
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      success: true,
+      data,
+    });
+  } catch (error) {
+    console.error("Detailed error:", error);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+});
+
+// fetch schedule list with pagination
+router.route("/fetchScheduleList").get(async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await ScheduleProductList.findAndCountAll({
+      include: [
+        {
+          model: ProductList,
+          as: "schedule_product_list_product_id", // make sure this alias is also correct
+        },
+        {
+          model: SalesInvoice,
+          as: "spl_schedule_invoice_id",
+          include: [
+            {
+              model: Customer,
+            },
+          ],
+        },
+        {
+          model: ScheduleModel,
+          as: "spl_schedule_id",
+          where: {
+            status: {
+              [Op.in]: ["Completed", "Partial-Deliver"], // only include schedules with valid status
+            },
+          },
+          required: true, // ensures inner join (excludes null schedules)
+        },
+      ],
+      order: [["createdAt", "ASC"]],
+      limit: limit,
+      offset: offset,
+      logging: console.log, // optional: helps you debug the SQL
+    });
+
+    const data = rows.map((row) => row.get({ plain: true }));
+
+    return res.status(200).json({
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      success: true,
+      data: data,
+    });
+  } catch (error) {
+    console.error("Detailed error:", error);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+});
+
+// Add this new route to your backend
+router.route("/fetchSelectedSchedules").get(async (req, res) => {
+  try {
+    const ids = req.query.ids ? req.query.ids.split(",") : [];
+
+    if (ids.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+      });
+    }
+
+    const schedules = await ScheduleProductList.findAll({
+      where: {
+        id: {
+          [Op.in]: ids,
+        },
+      },
+      include: [
+        {
+          model: ProductList,
+          as: "schedule_product_list_product_id",
+        },
+        {
+          model: SalesInvoice,
+          as: "spl_schedule_invoice_id",
+          include: [
+            {
+              model: Customer,
+            },
+          ],
+        },
+        {
+          model: ScheduleModel,
+          as: "spl_schedule_id",
+        },
+      ],
+      order: [["createdAt", "ASC"]],
+    });
+
+    const data = schedules.map((schedule) => schedule.get({ plain: true }));
+
+    return res.status(200).json({
+      success: true,
+      data: data,
+    });
+  } catch (error) {
+    console.error("Error fetching selected schedules:", error);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+});
+
+// const createReturnProduct = await ReturnProduct.create(
+//   {
+//     return_product_code: returnId,
+//     title: returnName,
+//     move_to: moveTo,
+//     total_quantity: totalQuantity,
+//     remarks: remarks,
+//   },
+//   { transaction }
+// );
+
+// create return
+// router.route("/create").post(async (req, res) => {
+//   const transaction = await sequelize.transaction();
+//   try {
+//     console.log("Received return data:", req.body);
+//     const {
+//       returnId,
+//       returnName,
+//       moveTo,
+//       totalQuantity,
+//       remarks,
+//       userLogged,
+//       items,
+//     } = req.body;
+
+//     const groupedKeys = new Set();
+//     const scheduleIds = new Set();
+
+//     // 1. Update ScheduleProductList
+//     for (const item of items) {
+//       const { scheduleProductListId, returnQuantity } = item;
+
+//       const scheduleProduct = await ScheduleProductList.findOne({
+//         where: { id: scheduleProductListId },
+//         transaction,
+//       });
+
+//       if (!scheduleProduct) {
+//         throw new Error(
+//           `ScheduleProductList with id ${scheduleProductListId} not found`
+//         );
+//       }
+
+//       const newOriginalQty =
+//         (scheduleProduct.original_quantity || 0) - returnQuantity;
+
+//       await ScheduleProductList.update(
+//         {
+//           original_quantity: newOriginalQty,
+//           quantity_to_return: returnQuantity,
+//         },
+//         {
+//           where: { id: scheduleProductListId },
+//           transaction,
+//         }
+//       );
+
+//       // Combine full UUIDs using a custom delimiter
+//       const key = `${scheduleProduct.schedule_id}|${scheduleProduct.schedule_invoice_id}`;
+//       groupedKeys.add(key);
+//       scheduleIds.add(scheduleProduct.schedule_id);
+//     }
+
+//     console.log("Grouped Keys:", [...groupedKeys]);
+
+//     // 2. Update ScheduleInvoiceList based on updated ScheduleProductList aggregates
+//     for (const key of groupedKeys) {
+//       const [schedule_id, sales_invoice_id] = key.split("|");
+
+//       console.log("Processing aggregate for:", {
+//         schedule_id,
+//         sales_invoice_id,
+//       });
+
+//       const aggregates = await ScheduleProductList.findAll({
+//         where: {
+//           schedule_id,
+//           schedule_invoice_id: sales_invoice_id,
+//         },
+//         attributes: [
+//           [
+//             sequelize.fn("SUM", sequelize.col("original_quantity")),
+//             "totalOriginalQty",
+//           ],
+//           [
+//             sequelize.fn("SUM", sequelize.col("quantity_to_return")),
+//             "totalReturnQty",
+//           ],
+//         ],
+//         raw: true,
+//         transaction,
+//       });
+
+//       const totalOriginalQty = parseInt(aggregates[0].totalOriginalQty) || 0;
+//       const totalReturnQty = parseInt(aggregates[0].totalReturnQty) || 0;
+
+//       console.log("Aggregate result:", aggregates[0]);
+
+//       await ScheduleInvoiceList.update(
+//         {
+//           oredered_quantity: totalOriginalQty,
+//           quantity_to_return: totalReturnQty,
+//         },
+//         {
+//           where: {
+//             schedule_id,
+//             sales_invoice_id,
+//           },
+//           transaction,
+//         }
+//       );
+//     }
+
+//     // 3. Update ScheduleModel.quantity_to_return from ScheduleInvoiceList aggregates
+//     for (const scheduleId of scheduleIds) {
+//       const totalReturnQtyAggregate = await ScheduleInvoiceList.findAll({
+//         where: { schedule_id: scheduleId },
+//         attributes: [
+//           [
+//             sequelize.fn("SUM", sequelize.col("quantity_to_return")),
+//             "totalReturnQty",
+//           ],
+//         ],
+//         raw: true,
+//         transaction,
+//       });
+
+//       const totalReturnQty =
+//         parseInt(totalReturnQtyAggregate[0].totalReturnQty) || 0;
+
+//       await ScheduleModel.update(
+//         {
+//           quantity_to_return: totalReturnQty,
+//         },
+//         {
+//           where: { id: scheduleId },
+//           transaction,
+//         }
+//       );
+//     }
+
+//     // 4. Create ReturnProduct record
+//     const addReturnProduct = await ReturnProduct.create(
+//       {
+//         return_product_code: returnId,
+//         title: returnName,
+//         move_to: moveTo,
+//         total_quantity: totalQuantity,
+//         status: "To Review",
+//         remarks,
+//         createdBy: userLogged,
+//       },
+//       { transaction }
+//     );
+
+//     // 5. Create ReturnProductList records
+//     for (const item of items) {
+//       const { scheduleProductListId, returnQuantity } = item;
+
+//       const fetchScheduleProductList = await ScheduleProductList.findOne({
+//         where: { id: scheduleProductListId },
+//         transaction,
+//       });
+
+//       await ReturnProductList.create(
+//         {
+//           return_product_id: addReturnProduct.id,
+//           schedule_product_list_id: scheduleProductListId,
+//           original_quantity: fetchScheduleProductList.original_quantity,
+//           return_quantity: returnQuantity,
+//         },
+//         { transaction }
+//       );
+//     }
+
+//     await transaction.commit();
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Return product created successfully",
+//     });
+//   } catch (error) {
+//     await transaction.rollback();
+//     console.error("Error creating return product:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to create return product",
+//       error: error.message,
+//     });
+//   }
+// });
+
+// create
+router.route("/create").post(async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    console.log("Received return data:", req.body);
+    const {
+      returnId,
+      returnName,
+      moveTo,
+      totalQuantity,
+      remarks,
+      userLogged,
+      items,
+    } = req.body;
+
+    const addReturnProduct = await ReturnProduct.create(
+      {
+        return_product_code: returnId,
+        title: returnName,
+        move_to: moveTo,
+        total_quantity: totalQuantity,
+        status: "To Review",
+        remarks,
+        createdBy: userLogged,
+      },
+      { transaction }
+    );
+
+    const uniqueScheduleCombos = new Set();
+
+    for (const item of items) {
+      const { scheduleProductListId, returnQuantity } = item;
+
+      const fetchScheduleProductList = await ScheduleProductList.findOne({
+        where: { id: scheduleProductListId },
+        attributes: ["schedule_id", "schedule_invoice_id", "original_quantity"],
+        transaction,
+      });
+
+      await ReturnProductList.create(
+        {
+          return_product_id: addReturnProduct.id,
+          schedule_product_list_id: scheduleProductListId,
+          original_quantity: fetchScheduleProductList.original_quantity,
+          return_quantity: returnQuantity,
+        },
+        { transaction }
+      );
+
+      const newOriginalQty =
+        fetchScheduleProductList.original_quantity - returnQuantity;
+
+      await ScheduleProductList.update(
+        { original_quantity: newOriginalQty },
+        { where: { id: scheduleProductListId }, transaction }
+      );
+
+      const comboKey = `${fetchScheduleProductList.schedule_id}|${fetchScheduleProductList.schedule_invoice_id}`;
+      uniqueScheduleCombos.add(comboKey);
+    }
+
+    // 👉 Sum updated original_quantity per unique combo and update ScheduleInvoiceList
+    for (const combo of uniqueScheduleCombos) {
+      const [schedule_id, sales_invoice_id] = combo.split("|");
+
+      const sumResult = await ScheduleProductList.findOne({
+        where: {
+          schedule_id,
+          schedule_invoice_id: sales_invoice_id,
+        },
+        attributes: [
+          [sequelize.fn("SUM", sequelize.col("original_quantity")), "quantity"],
+        ],
+        raw: true,
+        transaction,
+      });
+
+      const totalQty = parseInt(sumResult.quantity) || 0;
+
+      console.log(
+        `Updating ScheduleInvoiceList for combo ${combo} with quantity: ${totalQty}`
+      );
+
+      await ScheduleInvoiceList.update(
+        {
+          oredered_quantity: totalQty,
+        },
+        {
+          where: {
+            schedule_id,
+            sales_invoice_id,
+          },
+          transaction,
+        }
+      );
+    }
+
+    await transaction.commit();
+
+    res.status(200).json({
+      success: true,
+      message: "Return product created and quantities updated successfully",
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error("Error creating return product:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to create return product",
+      error: error.message,
+    });
+  }
+});
+
+// update status
+router.route("/updateStatus/:id").put(async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const { status, remarks, userLogged } = req.body;
+
+    const updateData = {
+      updatedAt: new Date(),
+    };
+
+    if (status === "Approved") {
+      updateData.status = "Approved";
+      updateData.approvedRemarks = remarks;
+      updateData.approvedBy = userLogged;
+      updateData.approvedAt = new Date();
+    } else if (status === "Declined") {
+      updateData.status = "Declined";
+      updateData.rejectedRemarks = remarks;
+      updateData.rejectedBy = userLogged;
+      updateData.rejectedAt = new Date();
+
+      // 1. Fetch all return product items
+      const returnProducts = await ReturnProductList.findAll({
+        where: {
+          isDeleted: 0,
+          return_product_id: id,
+        },
+        include: [
+          {
+            model: ScheduleProductList,
+            as: "rpl_schedule_product_list_id",
+            attributes: [
+              "id",
+              "original_quantity",
+              "schedule_id",
+              "schedule_invoice_id",
+            ],
+          },
+        ],
+        transaction,
+      });
+
+      // 2. Calculate updates and track totals in memory
+      const scheduleUpdates = [];
+      const totalsMap = new Map(); // Tracks totals by schedule/invoice combo
+
+      for (const rp of returnProducts) {
+        const spl = rp.rpl_schedule_product_list_id;
+        const newQty = spl.original_quantity + rp.return_quantity;
+
+        // Track the update
+        scheduleUpdates.push({
+          id: spl.id,
+          newQty,
+        });
+
+        // Update our in-memory totals
+        const key = `${spl.schedule_id}|${spl.schedule_invoice_id}`;
+        const current = totalsMap.get(key) || {
+          schedule_id: spl.schedule_id,
+          schedule_invoice_id: spl.schedule_invoice_id,
+          total: 0,
+        };
+        current.total += rp.return_quantity;
+        totalsMap.set(key, current);
+      }
+
+      // 3. Perform all ScheduleProductList updates
+      for (const update of scheduleUpdates) {
+        await ScheduleProductList.update(
+          { original_quantity: update.newQty },
+          { where: { id: update.id }, transaction }
+        );
+      }
+
+      // 4. Update ScheduleInvoiceList using our in-memory totals
+      for (const [_, total] of totalsMap) {
+        console.log(
+          `Updating invoice ${total.schedule_invoice_id} with new total ${total.total}`
+        );
+
+        await ScheduleInvoiceList.update(
+          {
+            oredered_quantity: sequelize.literal(
+              `oredered_quantity + ${total.total}`
+            ),
+          },
+          {
+            where: {
+              schedule_id: total.schedule_id,
+              sales_invoice_id: total.schedule_invoice_id,
+            },
+            transaction,
+          }
+        );
+      }
+    } else if (status === "Closed") {
+      updateData.status = "Closed";
+      updateData.closedRemarks = remarks;
+      updateData.closedBy = userLogged;
+      updateData.closedAt = new Date();
+    }
+
+    // 5. Update the main return product record
+    await ReturnProduct.update(updateData, {
+      where: { id },
+      transaction,
+    });
+
+    await transaction.commit();
+
+    res.status(200).json({
+      success: true,
+      message: `Return product ${status.toLowerCase()} successfully`,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error("Error updating status:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update return product status",
+      error: error.message,
+    });
+  }
+});
+
+module.exports = router;

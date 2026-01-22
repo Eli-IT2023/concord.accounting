@@ -1,0 +1,289 @@
+  <div className="w-100">
+
+        <div className="w-100 d-flex flex-row justify-content-between ">
+          <div className="d-flex flex-row" style={{ maxWidth: "700px" }}>
+            <div>
+              <img
+                src={settings?.logo || Logo}
+                alt="Report Logo"
+                className="img-fluid"
+                style={{ maxHeight: "130px" }}
+              />
+            </div>
+            <div className="d-flex flex-column px-1">
+              <span className="fw-semibold fs-5">
+                {settings?.company_name || "E-Logic Innovations"}
+              </span>
+              <span>
+                <strong>Address: </strong>
+                <span>
+                  {settings?.company_address ||
+                    "2nd Floor Unit B ARCA Corporate Center, 150 F. Dela Cruz Street Cor. Maysan Road, Brgy Maysan, Valenzuela, Philippines"}
+                </span>
+              </span>
+              <span>
+                <strong>Landline: </strong>
+                <span>{settings?.landline || "(02)  8659 8685"}</span>
+              </span>
+              <span>
+                <strong>Email: </strong>
+                <span>{settings?.email || "admin@elogicinnovations.com"}</span>
+              </span>
+            </div>
+          </div>
+          <div className="d-flex flex-column text-end">
+            <span>
+              Date Received:{" "}
+              {new Date(receivingDate).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+            <span>
+              P.O Request Date:{" "}
+              {new Date(poRequestDate).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+          </div>
+        </div>
+
+        <div className="w-100 d-flex align-items-center">
+          <hr className="flex-grow-1" />
+        </div>
+        
+        <span className="fs-5">P.O Receiving Report</span>
+
+        <div className="w-100 d-flex flex-row justify-content-between mt-3 mb-3">
+          <div className="d-flex flex-column">
+            <span>
+              <strong>Vendor Name: </strong>
+              <span>{vendorName}</span>
+            </span>
+            <span>
+              <strong>P.O Number: </strong>
+              <span>
+                {details.rh_receiving_id?.receiving_po_id?.po_number || "N/A"}
+              </span>
+            </span>
+            <span className="mt-2">
+              <strong>Duty & Customs: </strong>
+              <span>
+                {(
+                  parseFloat(historyItem.details.duty_custom) || 0
+                ).toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </span>
+            <span>
+              <strong>Shipping Fee: </strong>
+              <span>
+                {(
+                  parseFloat(historyItem.details.shipping_fee) || 0
+                ).toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </span>
+          </div>
+          <div className="d-flex flex-column align-items-end">
+            <span>
+              <strong>Received By: </strong>
+              <span>{receivedByName}</span>
+            </span>
+            <span>
+              <strong>Requestor: </strong>
+              <span>{requestorName}</span>
+            </span>
+          </div>
+        </div>
+
+        <span className="fs-5 fw-bold">
+          Receiving Report No: {details.rr_no || "N/A"}
+        </span>
+
+        <div className="w-100 mt-3">
+          <table className="table">
+            <thead>
+              <tr>
+                <th
+                  className="text-center"
+                  style={{ background: "#DBDFE4", color: "#29292A" }}
+                >
+                  PRODUCT CODE
+                </th>
+                <th
+                  className="text-center"
+                  style={{ background: "#DBDFE4", color: "#29292A" }}
+                >
+                  ITEM
+                </th>
+                <th
+                  className="text-center"
+                  style={{ background: "#DBDFE4", color: "#29292A" }}
+                >
+                  QUANTITY
+                </th>
+                <th
+                  className="text-center"
+                  style={{ background: "#DBDFE4", color: "#29292A" }}
+                >
+                  PACKAGING
+                </th>
+                <th
+                  style={{ background: "#DBDFE4", color: "#29292A" }}
+                  className={
+                    roleType?.includes("Management") ? "text-center" : "d-none"
+                  }
+                >
+                  UNIT PRICE
+                </th>
+                <th
+                  className="text-center"
+                  style={{ background: "#DBDFE4", color: "#29292A" }}
+                >
+                  BEST BEFORE
+                </th>
+
+                {/* <th
+                  className="text-center"
+                  style={{ background: "#DBDFE4", color: "#29292A" }}
+                >
+                  ACCEPTED PRODUCTS
+                </th>
+                <th
+                  className="text-center"
+                  style={{ background: "#DBDFE4", color: "#29292A" }}
+                >
+                  REJECTED PRODUCTS
+                </th> */}
+
+                <th
+                  className="text-center"
+                  style={{ background: "#DBDFE4", color: "#29292A" }}
+                >
+                  REMARKS
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {historyItem.details?.rh_receiving_history_id?.length > 0 ? (
+                historyItem.details.rh_receiving_history_id.map(
+                  (product, idx) => {
+                    const uom =
+                      product.rpo_vendor_product_id?.po_vendor_product_id
+                        ?.prod_packaging;
+                    const uomString = uom.packaging_name
+                      ? `${uom.packaging_name} - (${uom.unit_quantity || ""}${
+                          uom.unit || ""
+                        })`
+                      : "";
+                    return (
+                      <tr key={idx}>
+                        <td className="text-center">
+                          {product.rpo_vendor_product_id?.po_vendor_product_id
+                            ?.product_code || "N/A"}
+                        </td>
+                        <td className="text-center">
+                          {product.rpo_vendor_product_id?.po_vendor_product_id
+                            ?.product_name || "N/A"}
+                        </td>
+                        <td className="text-center">
+                          {(
+                            parseFloat(product.quantity_received) || 0
+                          ).toLocaleString("en-US")}
+                        </td>
+                        <td>
+                          <div className="d-flex flex-row align-items-start justify-content-center gap-3">
+                            <span className="text-start">{uomString}</span>
+                            <div>
+                              {/* Debug check */}
+                              {Array.isArray(uom?.images) &&
+                              uom.images.length > 0 ? (
+                                <>
+                                  <img
+                                    src={uom.images[0].packaging_image}
+                                    alt="Packaging Logo"
+                                    className="img-fluid"
+                                    style={{
+                                      maxHeight: "70px",
+                                      maxWidth: "70px",
+                                    }}
+                                  />
+                                </>
+                              ) : (
+                                "no fetch"
+                              )}
+                            </div>
+                          </div>
+                        </td>
+
+                        <td
+                          className={
+                            roleType?.includes("Management")
+                              ? "text-center"
+                              : "d-none"
+                          }
+                        >
+                          {(
+                            parseFloat(product.rpo_vendor_product_id?.price) ||
+                            0
+                          ).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </td>
+                        <td className="text-center">
+                          {product.expiry_date
+                            ? new Date(product.expiry_date).toLocaleDateString(
+                                "en-US",
+                                {
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                }
+                              )
+                            : "---"}
+                        </td>
+
+                        {/* <td className="text-center">
+                          {
+                            // ACCEPTED PRODUCTS CALCULATION
+                            (
+                              parseFloat(
+                                product.quantity_received -
+                                  product.rejected_quantity
+                              ) || 0
+                            ).toLocaleString("en-US")
+                          }
+                        </td>
+                        <td className="text-center">
+                          {(
+                            parseFloat(product.rejected_quantity) || 0
+                          ).toLocaleString("en-US")}
+                        </td> */}
+
+                        <td className="text-center">
+                          {product.rpo_vendor_product_id?.remarks || ""}
+                        </td>
+                      </tr>
+                    );
+                  }
+                )
+              ) : (
+                <tr>
+                  <td colSpan="8" className="text-center py-3">
+                    No products received in this transaction
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>

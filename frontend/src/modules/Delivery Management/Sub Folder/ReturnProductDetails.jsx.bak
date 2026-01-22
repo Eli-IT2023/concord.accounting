@@ -1,0 +1,1026 @@
+import React, { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Form } from "react-bootstrap";
+import axios from "axios";
+import swal from "sweetalert";
+import { Modal, Button } from "react-bootstrap";
+import BASE_URL from "../../../assets/global/url";
+import useDecodeToken from "../../../hooks/customHook/useDecodeToken";
+
+const ReturnProductDetails = ({ authrztn }) => {
+  const userLoggedID = useDecodeToken();
+  const navigate = useNavigate();
+  const [rows, setRows] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [enableEdit, setEnableEdit] = useState(false);
+  const [isRowForApproval, setIsRowForApproval] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [filterColumn, setFilterColumn] = useState("all");
+  const [totalReturnQty, setTotalReturnQty] = useState(0);
+  const [returnID, setReturnID] = useState("");
+  const [selectedRows, setSelectedRows] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
+  const [scheduleData, setScheduleData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [modalPagination, setModalPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalItems: 0,
+    limit: 5,
+  });
+
+  const formatNumberWithCommas = (value) => {
+    if (value === "" || value === null || value === undefined) return "";
+    // Remove all non-digit characters first (in case it's called with a formatted value)
+    const numString = value.toString().replace(/\D/g, "");
+    // Format with commas if not empty
+    return numString === "" ? "" : parseInt(numString, 10).toLocaleString();
+  };
+
+  // Generate return ID
+  const generateReturnID = () => {
+    const randomNum = Math.floor(100 + Math.random() * 900);
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const hours = String(now.getHours()).padStart(2, "0");
+    const minutes = String(now.getMinutes()).padStart(2, "0");
+    const seconds = String(now.getSeconds()).padStart(2, "0");
+
+    const datetimeStr = `${year}${month}${day}${hours}${minutes}${seconds}`;
+    const generatedReturnID = `RTRN-${datetimeStr}${randomNum}`;
+    setReturnID(generatedReturnID);
+  };
+
+  // Fetch schedule data with pagination
+  const fetchScheduleData = async (page = 1, limit = 5) => {
+    try {
+      setLoading(true);
+      const response = await axios.get(
+        `${BASE_URL}/ReturnProduct/fetchScheduleList?page=${page}&limit=${limit}`
+      );
+
+      setScheduleData(response.data.data);
+      setModalPagination({
+        currentPage: response.data.currentPage,
+        totalPages: response.data.totalPages,
+        totalItems: response.data.totalItems,
+        limit: limit,
+      });
+    } catch (error) {
+      console.error("Error fetching schedule list:", error);
+      swal("Error", "Failed to fetch schedule list", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update selectAll when scheduleData or selectedRows change
+  useEffect(() => {
+    if (scheduleData.length > 0) {
+      const currentPageIds = scheduleData.map((row) => row.id);
+      const allSelected = currentPageIds.every((id) =>
+        selectedRows.includes(id)
+      );
+      setSelectAll(allSelected);
+    }
+  }, [scheduleData, selectedRows]);
+
+  useEffect(() => {
+    generateReturnID();
+  }, []);
+
+  const handleSearch = (value) => {
+    setSearchText(value);
+  };
+
+  const handleShow = async () => {
+    // Keep existing selections but don't reset them
+    await fetchScheduleData();
+
+    // Set selectAll based on current page items
+    const currentPageIds = scheduleData.map((row) => row.id);
+    const allSelected = currentPageIds.every((id) => selectedRows.includes(id));
+    setSelectAll(allSelected);
+
+    setShowModal(true);
+  };
+
+  const handleClose = () => {
+    setShowModal(false);
+    setEnableEdit(false);
+    setIsRowForApproval(false);
+    setSelectAll(false);
+  };
+
+  const handleEdit = () => {
+    setEnableEdit(true);
+  };
+
+  // Handle page change
+  const handlePageChange = (newPage) => {
+    fetchScheduleData(newPage, modalPagination.limit);
+  };
+
+  // Handle individual checkbox change
+  const handleRowSelect = (rowId) => {
+    let newSelectedRows;
+    if (selectedRows.includes(rowId)) {
+      newSelectedRows = selectedRows.filter((id) => id !== rowId);
+    } else {
+      newSelectedRows = [...selectedRows, rowId];
+    }
+    setSelectedRows(newSelectedRows);
+  };
+
+  // Handle select all for current page
+  const handleSelectAll = (e) => {
+    const isChecked = e.target.checked;
+    const currentPageIds = scheduleData.map((row) => row.id);
+
+    if (isChecked) {
+      // Add all items on current page to selection
+      setSelectedRows([...new Set([...selectedRows, ...currentPageIds])]);
+    } else {
+      // Remove all items on current page from selection
+      setSelectedRows(
+        selectedRows.filter((id) => !currentPageIds.includes(id))
+      );
+    }
+  };
+
+  // Confirm selected items
+  const handleConfirm = async () => {
+    try {
+      setLoading(true);
+
+      // First, fetch all selected items (regardless of pagination)
+      const response = await axios.get(
+        `${BASE_URL}/ReturnProduct/fetchSelectedSchedules`,
+        {
+          params: {
+            ids: selectedRows.join(","),
+          },
+        }
+      );
+
+      const selectedItems = response.data.data || [];
+
+      // Create a map of selected items for quick lookup
+      const selectedItemsMap = {};
+      selectedItems.forEach((item) => {
+        selectedItemsMap[item.id] = true;
+      });
+
+      // Build updated rows:
+      const updatedRows = rows
+        .filter((row) => selectedItemsMap[row.id])
+        .concat(
+          selectedItems
+            .filter((item) => !rows.some((row) => row.id === item.id))
+            .map((item) => ({
+              id: item.id,
+              scheduleId: item.spl_schedule_id?.schedule_code || "---",
+              salesInvoice:
+                item.spl_schedule_invoice_id?.transaction_id || "---",
+              customerName:
+                item.spl_schedule_invoice_id?.customer?.company_name || "---",
+              productCode:
+                item.schedule_product_list_product_id?.product_code || "---",
+              productName:
+                item.schedule_product_list_product_id?.product_name || "---",
+              totalOrdered: item.non_modify_quantity || 0,
+              totalQuantity: item.original_quantity || 0,
+              totalReceived: item.delivered_quantity || 0,
+              returnQuantity:
+                rows.find((row) => row.id === item.id)?.returnQuantity || 0,
+            }))
+        );
+
+      setRows(updatedRows);
+
+      // Recalculate total return quantity
+      const newTotal = updatedRows.reduce(
+        (sum, row) => sum + (row.returnQuantity || 0),
+        0
+      );
+      setTotalReturnQty(newTotal);
+
+      handleClose();
+    } catch (error) {
+      console.error("Error confirming selections:", error);
+      swal("Error", "Failed to confirm selections", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle return quantity change
+  const handleReturnQtyChange = (rowId, value) => {
+    // Remove all non-digit characters and leading zeros
+    const cleanedValue = value.replace(/\D/g, "").replace(/^0+/, "") || "0";
+    const numericValue = parseInt(cleanedValue, 10) || 0;
+
+    const updatedRows = rows.map((row) => {
+      if (row.id === rowId) {
+        // Ensure return quantity doesn't exceed total received
+        const maxAllowed = row.totalQuantity || 0;
+        const returnQty = Math.min(Math.max(0, numericValue), maxAllowed);
+
+        return {
+          ...row,
+          returnQuantity: returnQty,
+        };
+      }
+      return row;
+    });
+
+    setRows(updatedRows);
+
+    // Recalculate total
+    const newTotal = updatedRows.reduce(
+      (sum, row) => sum + (row.returnQuantity || 0),
+      0
+    );
+    setTotalReturnQty(newTotal);
+  };
+
+  useEffect(() => {
+    const newTotal = rows.reduce(
+      (sum, row) => sum + (row.returnQuantity || 0),
+      0
+    );
+    setTotalReturnQty(newTotal);
+  }, [rows]);
+
+  // for creation
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationErrors, setValidationErrors] = useState({
+    returnName: false,
+    moveTo: false,
+    remarks: false,
+    totalQuantity: false,
+  });
+
+  const handleSave = async () => {
+    // Validate required fields
+    const returnName = document.getElementById("returnName").value;
+    const moveTo = document.getElementById("moveTo").value;
+    const remarks = document.getElementById("remarks").value;
+
+    const errors = {
+      returnName: !returnName,
+      moveTo: !moveTo,
+      remarks: !remarks,
+      totalQuantity: totalReturnQty === 0 || isNaN(totalReturnQty),
+    };
+
+    setValidationErrors(errors);
+
+    // Check if there are any errors
+    if (Object.values(errors).some((error) => error)) {
+      swal(
+        "Error",
+        "Please fill in all required fields and ensure total quantity is not 0",
+        "error"
+      );
+
+      return;
+    }
+
+    // Show confirmation dialog
+    swal({
+      title: "Are you sure?",
+      text: "You are about to submit this return product request.",
+      icon: "warning",
+      buttons: true,
+      dangerMode: true,
+    }).then(async (willSubmit) => {
+      if (willSubmit) {
+        try {
+          setIsSubmitting(true);
+
+          // Prepare the data to be sent - filter out items with 0 or empty returnQuantity
+          const returnData = {
+            returnId: returnID,
+            returnName: returnName,
+            moveTo: moveTo,
+            totalQuantity: totalReturnQty,
+            remarks: remarks,
+            userLogged: userLoggedID,
+            items: rows
+              .filter((row) => row.returnQuantity > 0) // Only include rows with returnQuantity > 0
+              .map((row) => ({
+                scheduleProductListId: row.id,
+                scheduleId: row.scheduleId,
+                productCode: row.productCode,
+                returnQuantity: row.returnQuantity,
+              })),
+          };
+
+          console.log("Submitting return data:", returnData);
+
+          const response = await axios.post(
+            `${BASE_URL}/ReturnProduct/create`,
+            returnData
+          );
+
+          if (response.data.success) {
+            swal({
+              title: "Success!",
+              text: "Return Request created successfully",
+              icon: "success",
+              button: false,
+              timer: 2500,
+            }).then(() => {
+              navigate("/delivery-management/return-products");
+              window.scrollTo(0, 0);
+              // handeCloseModal();
+              // setIsSubmit(false);
+              // window.location.reload();
+              // // handeCloseModal();
+              // // fetchScheduleData();
+            });
+          } else {
+            throw new Error(response.data.message || "Failed to create data");
+          }
+        } catch (error) {
+          console.error("Error submitting return:", error);
+          swal("Error", "Failed to submit return product", "error");
+        } finally {
+          setIsSubmitting(false);
+        }
+      } else {
+        setIsSubmitting(false);
+      }
+    });
+  };
+
+  return (
+    <div className="h-100 w-100 border bg-white custom-container">
+      <div className="w-100 p-2 d-flex flex-row justify-content-between">
+        <div className="d-flex flex-column title-custom2">
+          <span className="fs-3">
+            <button
+              onClick={() => navigate("/delivery-management/return-products")}
+              className="text-dark border-0"
+              style={{ background: "none" }}
+            >
+              <i className="bx bx-arrow-back"></i>
+            </button>
+            <span className="mx-2">RETURN PRODUCT DETAILS</span>
+          </span>
+        </div>
+      </div>
+      <div className="container-fluid mt-3">
+        <div className="row">
+          <div className="col-md-6 mb-2">
+            <label htmlFor="scheduleCode">Return Product Code</label>
+            <input
+              type="text"
+              name=""
+              id="scheduleCode"
+              className="form-control"
+              value={returnID}
+              readOnly
+            />
+          </div>
+          <div className="col-md-6 mb-2">
+            <label htmlFor="returnName">
+              Return Product Name <span className="text-danger">*</span>
+            </label>
+            <input
+              type="text"
+              id="returnName"
+              className={`form-control ${
+                validationErrors.returnName ? "is-invalid" : ""
+              }`}
+              placeholder="Enter Name"
+              required
+            />
+            {/* {validationErrors.returnName && (
+              <div className="invalid-feedback">This field is required</div>
+            )} */}
+          </div>
+        </div>
+
+        <div className="row">
+          <div className="col-md-6 mb-2">
+            <label htmlFor="totalQuantity">
+              Total Quantity <span className="text-danger">*</span>
+            </label>
+            <input
+              type="text"
+              id="totalQuantity"
+              className={`form-control ${
+                validationErrors.totalQuantity ? "is-invalid" : ""
+              }`}
+              readOnly
+              placeholder="0"
+              value={formatNumberWithCommas(totalReturnQty)}
+            />
+            {validationErrors.totalQuantity && (
+              <div className="invalid-feedback">
+                Total quantity must be greater than 0
+              </div>
+            )}
+          </div>
+          <div className="col-md-6 mb-2">
+            <label htmlFor="moveTo">
+              Move to <span className="text-danger">*</span>
+            </label>
+            <select
+              id="moveTo"
+              className={`form-select ${
+                validationErrors.moveTo ? "is-invalid" : ""
+              }`}
+              required
+            >
+              <option value="" selected disabled>
+                Select Option
+              </option>
+              <option value="Inventory">Inventory</option>
+              <option value="Dispose">Dispose</option>
+            </select>
+            {/* {validationErrors.moveTo && (
+              <div className="invalid-feedback">Please select an option</div>
+            )} */}
+          </div>
+        </div>
+
+        <div className="row">
+          <div className="col-md-6 mb-2">
+            <label htmlFor="remarks">
+              Remarks <span className="text-danger">*</span>
+            </label>
+            <textarea
+              id="remarks"
+              cols="3"
+              rows="3"
+              className={`form-control ${
+                validationErrors.remarks ? "is-invalid" : ""
+              }`}
+              placeholder="Enter Remarks"
+              required
+            ></textarea>
+            {/* {validationErrors.remarks && (
+              <div className="invalid-feedback">This field is required</div>
+            )} */}
+          </div>
+          <div className="col-md-6 mb-2"></div>
+        </div>
+      </div>
+
+      <div
+        className="w-100 d-flex align-items-center py-2"
+        style={{
+          paddingInline: "0.75rem",
+        }}
+      >
+        <span>Return Product Details</span>
+        <hr className="flex-grow-1 mx-3" />
+        <Button variant="primary" className="py-1 px-2" onClick={handleShow}>
+          Add Item
+        </Button>
+      </div>
+
+      <div className="container-fluid mt-1">
+        <div className="w-100 table-responsive">
+          <table
+            className="w-100 table table-hover"
+            style={{ overflowX: "auto" }}
+          >
+            <thead className="bg-light">
+              <tr>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center justify-content-center">
+                    SCHEDULE CODE
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center justify-content-center">
+                    SALES INVOICE
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center justify-content-center">
+                    CUSTOMER NAME
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center justify-content-center">
+                    PRODUCT CODE
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center justify-content-center">
+                    PRODUCT NAME
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center justify-content-center">
+                    TOTAL ORDERED
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center justify-content-center">
+                    TOTAL QUANTITY
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center justify-content-center">
+                    TOTAL RECEIVED
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center justify-content-center">
+                    RETURN QUANTITY
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length > 0 ? (
+                rows.map((row) => (
+                  <tr key={row.id} style={{ cursor: "pointer" }}>
+                    <td
+                      className="text-center p-3
+"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {row.scheduleId}
+                    </td>
+                    <td
+                      className="text-center p-3
+"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {row.salesInvoice}
+                    </td>
+                    <td
+                      className="text-center p-3"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {row.customerName}
+                    </td>
+                    <td
+                      className="text-center p-3"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {row.productCode}
+                    </td>
+                    <td
+                      className="text-center p-3"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {row.productName}
+                    </td>
+                    <td
+                      className="text-center p-3"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {row.totalOrdered?.toLocaleString() || 0}
+                    </td>
+                    <td
+                      className="text-center p-3"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {row.totalQuantity?.toLocaleString() || 0}
+                    </td>
+                    <td
+                      className="text-center p-3"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {row.totalReceived?.toLocaleString() || 0}
+                    </td>
+
+                    <td
+                      className="text-center p-3"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      <Form.Control
+                        type="text"
+                        size="sm"
+                        value={
+                          row.returnQuantity === 0
+                            ? ""
+                            : formatNumberWithCommas(row.returnQuantity)
+                        }
+                        onChange={(e) => {
+                          // Only allow numbers
+                          const value = e.target.value.replace(/\D/g, "");
+                          handleReturnQtyChange(row.id, value);
+                        }}
+                        onBlur={(e) => {
+                          // If empty, set to 0
+                          if (e.target.value === "") {
+                            handleReturnQtyChange(row.id, "0");
+                          }
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="9" className="text-center py-4">
+                    <div className="d-flex flex-column align-items-center">
+                      <span>No data available</span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="w-100 d-flex align-items-center justify-content-end py-2 mt-4">
+        <div className="d-flex gap-2">
+          <Button
+            variant="outline-secondary"
+            style={{ padding: "0.7rem 1.7rem" }}
+            onClick={() => {
+              navigate("/delivery-management/return-products");
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            style={{ padding: "0.7rem 1.7rem" }}
+            onClick={handleSave}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <>
+                <span
+                  className="spinner-border spinner-border-sm me-2"
+                  role="status"
+                  aria-hidden="true"
+                ></span>
+                Submitting...
+              </>
+            ) : (
+              "Submit"
+            )}
+          </Button>
+        </div>
+      </div>
+      <Modal size="xl" backdrop="static" show={showModal} onHide={handleClose}>
+        <Modal.Header closeButton>
+          <Modal.Title>SELECT SCHEDULES</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Form>
+            {/* Search and filter controls */}
+            <div className="table-responsive shadow-sm">
+              <table className="table table-hover">
+                <thead className="bg-light">
+                  <tr>
+                    <th style={{ backgroundColor: "#EBEFF4" }}>
+                      <Form.Check
+                        type="checkbox"
+                        id="select-all-checkbox"
+                        checked={selectAll}
+                        onChange={handleSelectAll}
+                      />
+                    </th>
+                    <th style={{ backgroundColor: "#EBEFF4" }}>
+                      SCHEDULE CODE
+                    </th>
+                    <th style={{ backgroundColor: "#EBEFF4" }}>
+                      SALES INVOICE
+                    </th>
+                    <th style={{ backgroundColor: "#EBEFF4" }}>CUSTOMER</th>
+                    <th style={{ backgroundColor: "#EBEFF4" }}>PRODUCT CODE</th>
+                    <th style={{ backgroundColor: "#EBEFF4" }}>PRODUCT NAME</th>
+                    <th style={{ backgroundColor: "#EBEFF4" }}>ORDERED QTY</th>
+                    <th style={{ backgroundColor: "#EBEFF4" }}>TOTAL QTY</th>
+                    <th style={{ backgroundColor: "#EBEFF4" }}>
+                      DELIVERED QTY
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan="8" className="text-center py-4">
+                        Loading...
+                      </td>
+                    </tr>
+                  ) : scheduleData.length > 0 ? (
+                    scheduleData.map((row) => (
+                      <tr
+                        key={row.id}
+                        className={
+                          selectedRows.includes(row.id) ? "table-primary" : ""
+                        }
+                      >
+                        <td>
+                          <Form.Check
+                            type="checkbox"
+                            checked={selectedRows.includes(row.id)}
+                            onChange={() => handleRowSelect(row.id)}
+                          />
+                        </td>
+                        <td>{row.spl_schedule_id?.schedule_code}</td>
+                        <td>
+                          {row.spl_schedule_invoice_id?.transaction_id || "---"}
+                        </td>
+                        <td>
+                          {row.spl_schedule_invoice_id?.customer
+                            ?.company_name || "---"}
+                        </td>
+                        <td>
+                          {row.schedule_product_list_product_id?.product_code ||
+                            "---"}
+                        </td>
+                        <td>
+                          {row.schedule_product_list_product_id?.product_name ||
+                            "---"}
+                        </td>
+                        <td>
+                          {(row.non_modify_quantity || 0).toLocaleString()}
+                        </td>
+                        <td>{(row.original_quantity || 0).toLocaleString()}</td>
+                        <td>
+                          {(row.delivered_quantity || 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="8" className="text-center py-4">
+                        No schedule data available
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination controls */}
+            {!loading && scheduleData.length > 0 && (
+              <div className="d-flex justify-content-between align-items-center mt-3">
+                <div>
+                  Showing{" "}
+                  {(modalPagination.currentPage - 1) * modalPagination.limit +
+                    1}{" "}
+                  to{" "}
+                  {Math.min(
+                    modalPagination.currentPage * modalPagination.limit,
+                    modalPagination.totalItems
+                  )}{" "}
+                  of {modalPagination.totalItems} items
+                </div>
+                <div className="d-flex align-items-center">
+                  <select
+                    className="form-select form-select-sm me-2"
+                    style={{ width: "80px" }}
+                    value={modalPagination.limit}
+                    onChange={(e) => {
+                      fetchScheduleData(1, Number(e.target.value));
+                    }}
+                  >
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                  </select>
+
+                  <button
+                    className="btn btn-sm btn-outline-primary me-2"
+                    disabled={modalPagination.currentPage === 1}
+                    onClick={() => handlePageChange(1)}
+                  >
+                    First
+                  </button>
+
+                  <button
+                    className="btn btn-sm btn-outline-primary me-2"
+                    disabled={modalPagination.currentPage === 1}
+                    onClick={() =>
+                      handlePageChange(modalPagination.currentPage - 1)
+                    }
+                  >
+                    Previous
+                  </button>
+
+                  <span className="mx-2">
+                    Page {modalPagination.currentPage} of{" "}
+                    {modalPagination.totalPages}
+                  </span>
+
+                  <button
+                    className="btn btn-sm btn-outline-primary me-2"
+                    disabled={
+                      modalPagination.currentPage === modalPagination.totalPages
+                    }
+                    onClick={() =>
+                      handlePageChange(modalPagination.currentPage + 1)
+                    }
+                  >
+                    Next
+                  </button>
+
+                  <button
+                    className="btn btn-sm btn-outline-primary"
+                    disabled={
+                      modalPagination.currentPage === modalPagination.totalPages
+                    }
+                    onClick={() => handlePageChange(modalPagination.totalPages)}
+                  >
+                    Last
+                  </button>
+                </div>
+              </div>
+            )}
+          </Form>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="outline-secondary" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleConfirm}>
+            Confirm
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    </div>
+  );
+};
+
+export default ReturnProductDetails;

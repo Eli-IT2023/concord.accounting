@@ -1,0 +1,391 @@
+import React, { useEffect, useRef, useState } from "react";
+import axios from "axios";
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
+import swal from "sweetalert";
+import BASE_URL from "../../../assets/global/url";
+import Logo from "../../../assets/img/logo.jpg";
+import "../../../assets/fonts/Poppins/Poppins-Regular-normal";
+import "../../../assets/fonts/Poppins/Poppins-Bold-normal";
+
+const Purchase_order_pdf = () => {
+  const contentRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const poId = params.get("po_id");
+
+    if (poId) {
+      fetchDataAndGeneratePDF(poId);
+    }
+  }, []);
+
+  const fetchDataAndGeneratePDF = async (poId) => {
+    try {
+      setLoading(true);
+      const [poResponse, productsResponse] = await Promise.all([
+        axios.get(`${BASE_URL}/PurchaseOrder/getVendorPO/${poId}`),
+        axios.get(`${BASE_URL}/PurchaseOrder/getVendorProduct/${poId}`),
+      ]);
+
+      const vendorPO = poResponse.data?.[0];
+      const vendorProducts = productsResponse.data || [];
+
+      if (!vendorPO) {
+        throw new Error("Purchase order not found");
+      }
+
+      generatePDF(vendorPO, vendorProducts);
+    } catch (error) {
+      console.error("Error:", error);
+      swal("Error", "Failed to generate PDF", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatNumber = (num) => {
+    return Number(num || 0).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  const generatePDF = (vendorPO, vendorProducts) => {
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
+
+    const semiBoldText = (text, x, y) => {
+      doc.setFont("Poppins-Bold", "normal");
+      doc.setTextColor(80); // Dark gray for semi-bold effect
+      doc.text(text, x, y);
+      doc.setFont("Poppins-Regular", "normal");
+      doc.setTextColor(0); // Reset to black
+      return doc.getTextWidth(text);
+    };
+
+    // ===== HEADER =====
+    const logoWidth = 25;
+    const logoHeight = 22;
+    const logoX = (210 - logoWidth) / 2;
+    const logoY = 5;
+    doc.addImage(Logo, "JPEG", logoX, logoY, logoWidth, logoHeight);
+
+    doc.setFontSize(14);
+    doc.setFont("Poppins-Bold", "normal");
+    doc.text("CONCORD SCIENTIFIC AND CHEMICAL CORPORATION", 105, logoY + 28, {
+      align: "center",
+    });
+
+    doc.setFontSize(10);
+    doc.setFont("Poppins-Regular", "normal");
+    const addressLines = [
+      "The Richwell Center, Unit 603 102 Timog Avenue",
+      "Barangay Sacred Heart, Quezon City",
+      "VAT Reg. TIN: 000-388-249",
+      "Telephone No: 896-3562",
+    ];
+    let currentY = logoY + 34;
+    addressLines.forEach((line) => {
+      doc.text(line, 105, currentY, { align: "center" });
+      currentY += 5;
+    });
+
+    // ===== TITLE =====
+    doc.setFontSize(18);
+    doc.setFont("Poppins-Bold", "normal");
+    doc.text("PURCHASE ORDER", 105, currentY + 5, { align: "center" });
+
+    // ===== PO DETAILS SECTION =====
+    doc.setFontSize(10);
+    let detailsY = currentY + 15;
+    const lineHeight = 5;
+
+    // Left Column
+    const labelWidth1 = semiBoldText("PO NO:", 20, detailsY);
+    doc.text(vendorPO.po_number || "N/A", 20 + labelWidth1 + 2, detailsY);
+
+    const labelWidth2 = semiBoldText("Date Issued:", 20, detailsY + lineHeight);
+    doc.text(
+      formatDate(vendorPO.createdAt),
+      20 + labelWidth2 + 2,
+      detailsY + lineHeight
+    );
+
+    const labelWidth3 = semiBoldText("Vendor:", 20, detailsY + lineHeight * 2);
+    doc.text(
+      getVendorName(vendorPO.po_vendor),
+      20 + labelWidth3 + 2,
+      detailsY + lineHeight * 2
+    );
+
+    semiBoldText("Address:", 20, detailsY + lineHeight * 3);
+    const addressText = vendorPO.po_vendor?.company_address || "N/A";
+    const wrappedAddress = doc.splitTextToSize(addressText, 80);
+    doc.text(
+      wrappedAddress,
+      20 + doc.getTextWidth("Address: ") + 2,
+      detailsY + lineHeight * 3
+    );
+
+    semiBoldText("Email:", 20, detailsY + lineHeight * 4);
+    const emailText = vendorPO.po_vendor?.company_email || "N/A";
+    const wrappedEmail = doc.splitTextToSize(emailText, 80);
+    doc.text(
+      wrappedEmail,
+      20 + doc.getTextWidth("Email: ") + 2,
+      detailsY + lineHeight * 4
+    );
+
+    // Right Column
+    const labelWidth4 = semiBoldText("Ship To:", 120, detailsY);
+    doc.text(
+      vendorPO.po_warehouse_id?.name || "N/A",
+      120 + labelWidth4 + 2,
+      detailsY
+    );
+
+    const labelWidth5 = semiBoldText(
+      "Delivery Date:",
+      120,
+      detailsY + lineHeight
+    );
+    doc.text(
+      formatDate(vendorPO.delivery_date),
+      120 + labelWidth5 + 2,
+      detailsY + lineHeight
+    );
+
+    const labelWidth6 = semiBoldText(
+      "Shipping Method: ",
+      120,
+      detailsY + lineHeight * 2
+    );
+    doc.text(
+      vendorPO.shipping_method || "N/A",
+      120 + labelWidth6 + 2,
+      detailsY + lineHeight * 2
+    );
+
+    const labelWidth7 = semiBoldText(
+      "Payment Terms:",
+      120,
+      detailsY + lineHeight * 3
+    );
+    doc.text(
+      vendorPO.payment_term || "N/A",
+      120 + labelWidth7 + 2,
+      detailsY + lineHeight * 3
+    );
+
+    // ===== PRODUCTS TABLE =====
+    const tableData = vendorProducts.map((product) => [
+      product.po_vendor_product_id?.product_name ||
+        product.po_vendor_product_id?.product_code ||
+        "N/A",
+      `${product.po_vendor_product_id?.prod_packaging?.packaging_name} - (${product.po_vendor_product_id?.prod_packaging?.unit_quantity}${product.po_vendor_product_id?.prod_packaging?.unit})`,
+      product.quantity.toLocaleString(undefined),
+      formatNumber(product.price || 0),
+      formatNumber(product.quantity * product.price || 0),
+    ]);
+
+    doc.autoTable({
+      startY: 101,
+      head: [
+        ["PRODUCT NAME", "UNIT OF MEASURE", "QUANTITY", "UNIT PRICE", "TOTAL"],
+      ],
+      body: tableData,
+      headStyles: {
+        fillColor: [123, 123, 123],
+        textColor: [255, 255, 255],
+        font: "Poppins-Bold",
+        fontStyle: "normal",
+        fontSize: 11.25,
+        cellPadding: {
+          top: 3,
+          right: 2,
+          bottom: 3,
+          left: 2,
+        },
+        minCellHeight: 8,
+        halign: "center", // Center-align header text
+        valign: "middle", // Vertical center alignment for header
+      },
+      styles: {
+        fontSize: 10,
+        cellPadding: 2,
+        font: "Poppins-Regular",
+        valign: "middle", // Vertical center alignment
+        halign: "center", // Center-align body text
+      },
+      columnStyles: {
+        0: { halign: "center" }, // Center-align first column
+        1: { halign: "center" }, // Center-align second column
+        2: { halign: "center" }, // Center-align third column
+        3: { halign: "center" }, // Center-align fourth column
+        4: { halign: "center" }, // Center-align fifth column
+      },
+      margin: { left: 13 },
+      tableLineWidth: 0.1,
+      tableLineColor: [200, 200, 200],
+    });
+
+    // ===== TOTALS =====
+    const lastTableY = doc.lastAutoTable.finalY + 15;
+
+    // Helper function to align text with proper spacing and color
+    const addAlignedTotal = (label, value, y, isTotal = false) => {
+      const labelText = isTotal ? `TOTAL ORDER AMOUNT: ` : `${label} `;
+      const formattedValue = formatNumber(parseFloat(value));
+
+      // Set font size before any calculations
+      doc.setFontSize(8.25);
+
+      // Calculate positions - adjust the right margin (70) as needed
+      const labelWidth = doc.getTextWidth(labelText);
+      const valueX = 137 + 70 * (8.25 / 10) - doc.getTextWidth(formattedValue); // Adjusted for font size
+
+      // Draw label
+      if (isTotal) {
+        semiBoldText(labelText, 137, y);
+      } else {
+        doc.text(labelText, 137, y);
+      }
+
+      // // Set color based on label
+      // if (label.includes("TOTAL VAT")) {
+      //   doc.setTextColor(28, 110, 253); // Blue for VAT
+      // } else if (label.includes("WITHHOLDING TAX")) {
+      //   doc.setTextColor(230, 91, 69); // Red for withholding tax
+      // }
+
+      // Draw value
+      doc.text(formattedValue, valueX, y);
+
+      // Reset color if you change it
+      doc.setTextColor(0);
+    };
+
+    // Add totals with proper alignment
+    addAlignedTotal("SUBTOTAL ORDER:", vendorPO.subtotal, lastTableY);
+    addAlignedTotal(
+      `TOTAL VAT (${vendorPO.vat_rate}%):`,
+      vendorPO.vat_amount,
+      lastTableY + 5
+    );
+    addAlignedTotal(
+      `WITHHOLDING TAX (${vendorPO.tax_rate}%):`,
+      vendorPO.tax_amount,
+      lastTableY + 10
+    );
+    addAlignedTotal("", vendorPO.total_amount, lastTableY + 15, true);
+
+    // ===== SIGNATURES SECTION =====
+    const signaturesY = lastTableY + 35; // Adjust Y-axis starting position here
+
+    // Signature box configuration - adjust these values as needed:
+    const signatureBox = {
+      width: 45, // Adjust width of each signature box (X-axis)
+      spacing: 69, // Adjust space between boxes (X-axis)
+      startX: 15, // Adjust left margin (X-axis)
+      lineLength: 40, // Adjust line length (shorter than box width)
+
+      // Vertical spacing (Y-axis) adjustments:
+      labelToLine: 14, // Space between label and line
+      lineToName: -2, // Space between line and name (on line)
+      nameToLabel: 5, // Space between name and "NAME" label
+    };
+
+    // Helper function for signature blocks
+    const addSignatureBlock = (label, name, x) => {
+      const centerX = x + signatureBox.width / 2;
+      const lineX = centerX - signatureBox.lineLength / 2;
+
+      // Label
+      doc.setFontSize(10);
+      doc.text(label, centerX, signaturesY, { align: "center" });
+
+      // Signature line (shorter than box width)
+      const lineY = signaturesY + signatureBox.labelToLine;
+      doc.line(lineX, lineY, lineX + signatureBox.lineLength, lineY);
+
+      // Name positioned directly on the line
+      if (name) {
+        doc.setFontSize(9);
+        doc.text(name, centerX, lineY + signatureBox.lineToName, {
+          align: "center",
+          renderingMode: "fill", // Ensures text is visible on line
+        });
+      }
+
+      // "NAME" label below
+      doc.setFontSize(8);
+      doc.text("NAME", centerX, lineY + signatureBox.nameToLabel, {
+        align: "center",
+      });
+    };
+
+    // Add signature blocks - positions calculated automatically
+    addSignatureBlock(
+      "Requested By",
+      getPersonName(vendorPO.po_pr_id?.requestor),
+      signatureBox.startX
+    );
+
+    addSignatureBlock(
+      "Prepared By",
+      getPersonName(vendorPO.po_prepared),
+      signatureBox.startX + signatureBox.spacing
+    );
+
+    addSignatureBlock(
+      "Approved By",
+      getPersonName(vendorPO.po_approver),
+      signatureBox.startX + signatureBox.spacing * 2
+    );
+
+    // Save & close
+    doc.save(`${vendorPO.po_number}.pdf`);
+    window.close();
+  };
+
+  // ===== HELPERS =====
+  const formatDate = (dateString) => {
+    if (!dateString) return "N/A";
+    const options = { year: "numeric", month: "long", day: "numeric" };
+    return new Date(dateString).toLocaleDateString("en-US", options);
+  };
+
+  const getVendorName = (vendor) => {
+    if (vendor?.fname && vendor?.lname) {
+      return `${vendor.fname} ${vendor.lname}`;
+    }
+    return vendor?.company_name || "N/A";
+  };
+
+  const getPersonName = (person) => {
+    if (person?.fname && person?.lname) {
+      return `${person.fname} ${person.lname}`;
+    }
+    return "";
+  };
+
+  return (
+    <div style={{ padding: "20px" }}>
+      {loading ? (
+        <div>Generating PDF... Please wait</div>
+      ) : (
+        <div>
+          PDF generation complete. If download didn't start, check your browser
+          settings.
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Purchase_order_pdf;

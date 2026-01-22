@@ -1,0 +1,581 @@
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import DataTable from "react-data-table-component";
+import { customStyles } from "../../assets/table-style";
+import "@fortawesome/fontawesome-free/css/all.min.css";
+import BASE_URL from "../../assets/global/url";
+// import { Link, useNavigate } from "react-router-dom";
+import { Button, Modal, Form } from "react-bootstrap";
+import moment from "moment-timezone";
+import swal from "sweetalert";
+const Income = () => {
+  // const navigate = useNavigate();
+  // filter
+  function formatDatetime(datetime) {
+    const options = {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    };
+    return new Date(datetime).toLocaleString("en-US", options);
+  }
+
+  const onInputFloat = (e) => {
+    e.target.value = e.target.value.replace(/[^0-9.]/g, "");
+  };
+
+  const [validated, setValidated] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [showModalEdit, setShowModalEdit] = useState(false);
+  const [accountID, setAccountID] = useState("");
+  const [incomeEditID, setIncomeEditID] = useState("");
+  const [staticAccountID, setStaticAccountID] = useState(""); //para if mag update e minus sa account na previous selected then tsaka e add  sa bago for accuracy ng amount sa account(sa edit lang to)
+  const [remarks, setRemarks] = useState("");
+  const [staticAmount, setStaticAmount] = useState(""); //para if mag update e minus sa account balance then tsaka e add for accuracy ng amount sa account (sa edit lang to)
+  const [amount, setAmount] = useState("");
+  const [accountListData, setAccountListData] = useState([]); // get account list
+  const [income, setIncome] = useState([]);
+
+  const [searchText, setSearchText] = useState("");
+  const [filterColumn, setFilterColumn] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  useEffect(() => {
+    // Get the current date in the Philippines timezone
+    const currentDate = moment().tz("Asia/Manila");
+
+    // Get the first date of the current month
+    const firstDay = currentDate.clone().startOf("month");
+    setFromDate(firstDay.format("YYYY-MM-DD"));
+
+    // Get the last date of the current month
+    const lastDay = currentDate.clone().endOf("month");
+    setToDate(lastDay.format("YYYY-MM-DD"));
+  }, []);
+
+  const fetchAccountData = async () => {
+    // console.log(payment);
+    try {
+      const res = await axios.get(`${BASE_URL}/accountlist/getAccountListData`);
+      setAccountListData(res.data);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleCloseModal = () => {
+    setShowModalEdit(false);
+    setShowModal(false);
+    setRemarks("");
+    setAccountID("");
+    setAmount("");
+    setStaticAmount("");
+    setStaticAccountID("");
+    setIncomeEditID("");
+    setValidated(false);
+  };
+
+  const add = async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    if (form.checkValidity() === false) {
+      e.preventDefault();
+      e.stopPropagation();
+      swal({
+        icon: "error",
+        title: "Fields are required",
+        text: "Please fill in the red text fields.",
+      });
+    } else {
+      swal({
+        title: "Create this new income?",
+        text: "",
+        icon: "warning",
+        buttons: true,
+        dangerMode: true,
+      }).then((confirmed) => {
+        if (confirmed) {
+          axios
+            .post(`${BASE_URL}/otherIncome/createIncome`, {
+              remarks,
+              accountID,
+              amount,
+            })
+            .then((res) => {
+              if (res.status === 200) {
+                swal({
+                  title: "Success",
+                  text: "Income addded to account successfully",
+                  icon: "success",
+                  buttons: false,
+                  timer: 2000,
+                  dangerMode: true,
+                }).then(() => {
+                  handleCloseModal();
+                  reloadTable();
+                });
+              } else {
+                swal({
+                  title: "Something Went Wrong",
+                  text: "Please contact your support immediately",
+                  icon: "error",
+                  buttons: false,
+                  timer: 2000,
+                  dangerMode: true,
+                });
+              }
+            });
+        }
+      });
+    }
+    setValidated(true);
+  };
+
+  const update = async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    if (form.checkValidity() === false) {
+      e.preventDefault();
+      e.stopPropagation();
+      swal({
+        icon: "error",
+        title: "Fields are required",
+        text: "Please fill in the red text fields.",
+      });
+    } else {
+      swal({
+        title: "Update this income?",
+        text: "",
+        icon: "warning",
+        buttons: true,
+        dangerMode: true,
+      }).then((confirmed) => {
+        if (confirmed) {
+          axios
+            .post(`${BASE_URL}/otherIncome/updateIncome`, {
+              incomeEditID,
+              remarks,
+              accountID,
+              amount,
+              staticAmount,
+              staticAccountID,
+            })
+            .then((res) => {
+              if (res.status === 200) {
+                swal({
+                  title: "Success",
+                  text: "Income updated to account successfully",
+                  icon: "success",
+                  buttons: false,
+                  timer: 2000,
+                  dangerMode: true,
+                }).then(() => {
+                  handleCloseModal();
+                  reloadTable();
+                });
+              } else {
+                swal({
+                  title: "Something Went Wrong",
+                  text: "Please contact your support immediately",
+                  icon: "error",
+                  buttons: false,
+                  timer: 2000,
+                  dangerMode: true,
+                });
+              }
+            });
+        }
+      });
+    }
+    setValidated(true);
+  };
+
+  const reloadTable = () => {
+    if (fromDate && toDate) {
+      axios
+        .get(`${BASE_URL}/otherIncome/fetch_data`, {
+          params: {
+            fromDate,
+            toDate,
+          },
+        })
+        .then((res) => {
+          setIncome(res.data);
+        })
+        .catch((error) => {
+          console.error("Error fetching expenses data:", error);
+        });
+    }
+  };
+  const handleRowClick = (data) => {
+    setShowModalEdit(true);
+    setIncomeEditID(data.id);
+    setRemarks(data.remarks);
+    setAccountID(data.acount_list_id);
+    setStaticAccountID(data.acount_list_id);
+    setAmount(data.amount);
+    setStaticAmount(data.amount);
+  };
+  useEffect(() => {
+    reloadTable();
+    fetchAccountData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromDate, toDate]);
+
+  const columns = [
+    {
+      name: "Remarks",
+      selector: (row) => row.remarks,
+    },
+    {
+      name: "Account Name",
+      selector: (row) => row.account_list.account_name,
+    },
+    {
+      name: "Amount",
+      selector: (row) => row.amount,
+    },
+    {
+      name: "Income Date",
+      selector: (row) => formatDatetime(row.createdAt),
+    },
+  ];
+
+  //   filter
+  // search
+  const filteredItems = income.filter((item) => {
+    if (!searchText) return true;
+
+    const searchLower = searchText.toLowerCase();
+
+    switch (filterColumn) {
+      case "Remarks":
+        return item.remarks.toLowerCase().includes(searchLower);
+      case "Account_Name":
+        return item.account_list.account_name
+          .toLowerCase()
+          .includes(searchLower);
+      case "date_created":
+        return formatDatetime(item.createdAt)
+          .toLowerCase()
+          .includes(searchLower);
+      case "Amount":
+        // Convert amount to string for comparison, but don't use .toLowerCase() for numeric values
+        return item.amount.toString().includes(searchLower);
+      default:
+        return (
+          item.remarks.toLowerCase().includes(searchLower) ||
+          item.account_list.account_name.toLowerCase().includes(searchLower) ||
+          formatDatetime(item.createdAt).toLowerCase().includes(searchLower) ||
+          item.amount.toString().includes(searchLower) // Convert to string here as well
+        );
+    }
+  });
+
+  return (
+    <div className="h-100 w-100 border bg-white custom-container">
+      <div className="w-100 p-2 d-flex flex-row justify-content-between">
+        <div className="d-flex flex-column title-custom">
+          <span className="fs-3">Other Income</span>
+          {/* <span>LOCAL ACCOUNTS RECEIVABLE</span> */}
+        </div>
+        <div>
+          <Button
+            type="button"
+            onClick={(e) => setShowModal(true)}
+            className="btn btn-primary d-flex flex-row align-items-center title-button"
+          >
+            <i className="bx bx-plus fs-5"></i> CREATE
+          </Button>
+        </div>
+      </div>
+
+      <div className="container-fluid mt-4 p-0">
+        <div className="row mx-auto">
+          <div className="col-sm mb-2">
+            <span>From</span>
+            <input
+              type="date"
+              className="form-control"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+            />
+          </div>
+          <div className="col-sm mb-2">
+            <span>To</span>
+            <input
+              type="date"
+              className="form-control"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+            />
+          </div>
+          <div className="col-sm d-flex flex-row align-items-end mb-2 filter-btn-container w-100">
+            {/* <button className="btn w-100" type="button" onClick={reloadTable}>
+              Apply Filter
+            </button>
+            <button className="btn btn-secondary w-100" type="button">
+              Clear Filter
+            </button> */}
+          </div>
+        </div>
+      </div>
+      <div className="w-100 mt-4 mb-2 container-fluid">
+        <div className="input-group">
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Search"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-outline-secondary dropdown-toggle-split"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+          >
+            <i className="fa-solid fa-sliders"></i>
+          </button>
+          <ul className="dropdown-menu dropdown-menu-end">
+            <li>
+              <button
+                className={`dropdown-item ${
+                  filterColumn === "Remarks" ? "active" : ""
+                }`}
+                onClick={() => setFilterColumn("Remarks")}
+              >
+                Remarks
+              </button>
+            </li>
+            <li>
+              <button
+                className={`dropdown-item ${
+                  filterColumn === "Account_Name" ? "active" : ""
+                }`}
+                onClick={() => setFilterColumn("Account_Name")}
+              >
+                Account Name
+              </button>
+            </li>
+            <li>
+              <button
+                className={`dropdown-item ${
+                  filterColumn === "Amount" ? "active" : ""
+                }`}
+                onClick={() => setFilterColumn("Amount")}
+              >
+                Amount
+              </button>
+            </li>
+            <li>
+              <button
+                className={`dropdown-item ${
+                  filterColumn === "date_created" ? "active" : ""
+                }`}
+                onClick={() => setFilterColumn("date_created")}
+              >
+                Date Created
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+      {/* data table */}
+      <div className="w-100 mt-3 container-fluid">
+        <DataTable
+          columns={columns}
+          data={filteredItems}
+          customStyles={customStyles}
+          pagination
+          onRowClicked={handleRowClick}
+          className="dataTable"
+        />
+      </div>
+
+      <Modal show={showModal} onHide={handleCloseModal} size="lg">
+        <Form noValidate validated={validated} onSubmit={add}>
+          <Modal.Header closeButton>
+            <h2>Create Other Income</h2>
+          </Modal.Header>
+          <Modal.Body>
+            <div className="row mt-3">
+              <div className="col-sm">
+                <Form.Group controlId="exampleForm.ControlInput1">
+                  <Form.Label className="fs-5">Remarks : </Form.Label>
+
+                  <Form.Control
+                    onChange={(e) => setRemarks(e.target.value)}
+                    required
+                    as="textarea"
+                    rows={3}
+                    style={{
+                      fontSize: "16px",
+                      height: "200px",
+                      maxHeight: "200px",
+                      resize: "none",
+                      overflowY: "auto",
+                    }}
+                    value={remarks}
+                    placeholder="Enter Remarks"
+                  />
+                </Form.Group>
+              </div>
+            </div>
+
+            <div className="row mt-3">
+              <div className="">
+                <Form.Group controlId="exampleForm.ControlInput1">
+                  <Form.Label className="fs-5">Select Account</Form.Label>
+
+                  <Form.Select
+                    required
+                    value={accountID}
+                    className="p-2"
+                    onChange={(e) => setAccountID(e.target.value)}
+                  >
+                    <option value="">Select Account name</option>
+                    {accountListData.map((data) => (
+                      <option
+                        key={data.account_list_id}
+                        value={data.account_list_id}
+                      >
+                        {data.account_name}
+                      </option>
+                    ))}
+
+                    {/* Add your account options here */}
+                  </Form.Select>
+                </Form.Group>
+              </div>
+            </div>
+
+            <div className="row mt-3">
+              <div className="">
+                <Form.Group controlId="exampleForm.ControlInput1">
+                  <Form.Label className="fs-5">Amount</Form.Label>
+                  <Form.Control
+                    required
+                    type="text"
+                    onInput={onInputFloat}
+                    onChange={(e) => setAmount(e.target.value)}
+                    value={amount}
+                    className="p-3"
+                    placeholder="Expenses Type"
+                  />
+                </Form.Group>
+              </div>
+            </div>
+          </Modal.Body>
+          <Modal.Footer>
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              variant="secondary"
+              onClick={handleCloseModal}
+            >
+              Close
+            </button>
+            <Button type="submit" variant="primary">
+              Submit
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      <Modal show={showModalEdit} onHide={handleCloseModal} size="lg">
+        <Form noValidate validated={validated} onSubmit={update}>
+          <Modal.Header closeButton>
+            <h2>Update Other Income</h2>
+          </Modal.Header>
+          <Modal.Body>
+            <div className="row mt-3">
+              <div className="col-sm">
+                <Form.Group controlId="exampleForm.ControlInput1">
+                  <Form.Label className="fs-5">Remarks : </Form.Label>
+
+                  <Form.Control
+                    required
+                    onChange={(e) => setRemarks(e.target.value)}
+                    as="textarea"
+                    rows={3}
+                    style={{
+                      fontSize: "16px",
+                      height: "200px",
+                      maxHeight: "200px",
+                      resize: "none",
+                      overflowY: "auto",
+                    }}
+                    value={remarks}
+                    placeholder="Enter Remarks"
+                  />
+                </Form.Group>
+              </div>
+            </div>
+
+            <div className="row mt-3">
+              <div className="">
+                <Form.Group controlId="exampleForm.ControlInput1">
+                  <Form.Label className="fs-5">Select Account</Form.Label>
+
+                  <Form.Select
+                    required
+                    value={accountID}
+                    className="p-2"
+                    onChange={(e) => setAccountID(e.target.value)}
+                  >
+                    <option value="">Select Account name</option>
+                    {accountListData.map((data) => (
+                      <option
+                        key={data.account_list_id}
+                        value={data.account_list_id}
+                      >
+                        {data.account_name}
+                      </option>
+                    ))}
+
+                    {/* Add your account options here */}
+                  </Form.Select>
+                </Form.Group>
+              </div>
+            </div>
+
+            <div className="row mt-3">
+              <div className="">
+                <Form.Group controlId="exampleForm.ControlInput1">
+                  <Form.Label className="fs-5">Amount</Form.Label>
+                  <Form.Control
+                    required
+                    type="text"
+                    onInput={onInputFloat}
+                    onChange={(e) => setAmount(e.target.value)}
+                    value={amount}
+                    className="p-3"
+                    placeholder="Expenses Type"
+                  />
+                </Form.Group>
+              </div>
+            </div>
+          </Modal.Body>
+          <Modal.Footer>
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              variant="secondary"
+              onClick={handleCloseModal}
+            >
+              Close
+            </button>
+            <Button type="submit" variant="primary">
+              Submit
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+    </div>
+  );
+};
+
+export default Income;

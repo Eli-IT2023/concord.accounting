@@ -1,0 +1,668 @@
+import { React, useState, useEffect } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Form } from "react-bootstrap";
+import { Modal, Button } from "react-bootstrap";
+import axios from "axios";
+import swal from "sweetalert";
+import BASE_URL from "../../../assets/global/url";
+import useDecodeToken from "../../../hooks/customHook/useDecodeToken";
+import { PaginationControls } from "../../../hooks/customHook/paginationHook/usePagination"; // Import our custom hook and component
+import { useServerPagination } from "../../../hooks/customHook/paginationHook/useServerPagination"; // Import our custom hook and component
+
+const ReturnProductDetails_Update = ({ authrztn }) => {
+  const userLoggedID = useDecodeToken();
+  const navigate = useNavigate();
+  const { id } = useParams();
+
+  const [totalReturnQty, setTotalReturnQty] = useState(0);
+  const [validationErrors, setValidationErrors] = useState({
+    returnName: false,
+    moveTo: false,
+    remarks: false,
+    totalQuantity: false,
+  });
+
+  const [fetchReturnProduct, setFetchReturnProduct] = useState(null);
+
+  useEffect(() => {
+    if (id) {
+      fetchReturnProductData();
+    }
+  }, [id]);
+
+  const fetchReturnProductData = async () => {
+    try {
+      const response = await axios.get(
+        `${BASE_URL}/ReturnProduct/fetchReturnProduct/${id}`
+      );
+      if (response.data.success) {
+        setFetchReturnProduct(response.data.data);
+        // Set total return quantity from fetched data
+        setTotalReturnQty(response.data.data.total_quantity || 0);
+      } else {
+        swal("Error", response.data.message || "Failed to fetch data", "error");
+      }
+    } catch (error) {
+      console.error("Fetch error:", error);
+      swal("Error", "Failed to fetch data", "error");
+    }
+  };
+
+  const formatNumberWithCommas = (value) => {
+    if (value === "" || value === null || value === undefined) return "";
+    const numString = value.toString().replace(/\D/g, "");
+    return numString === "" ? "" : parseInt(numString, 10).toLocaleString();
+  };
+
+  // ##### table #####
+  const [paginationUrl, setPaginationUrl] = useState(
+    `${BASE_URL}/ReturnProduct/fetchReturnProductTable/${id}`
+  );
+  const pagination = useServerPagination(paginationUrl, 10);
+  // ##### table end #####
+
+  // modal
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [statusAction, setStatusAction] = useState(""); // "Approve" or "Decline"
+  const [remarks, setRemarks] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleStatusActionClick = (action) => {
+    setStatusAction(action);
+    setShowStatusModal(true);
+  };
+
+  const handleStatusModalClose = () => {
+    setShowStatusModal(false);
+    setRemarks("");
+    setStatusAction("");
+  };
+
+  const handleSubmitStatus = async () => {
+    // setIsSubmitting(true);
+    try {
+      let mappedStatus;
+
+      if (statusAction === "Approve") {
+        mappedStatus = "Approved";
+      } else if (statusAction === "Decline") {
+        mappedStatus = "Declined";
+      } else if (statusAction === "Closed" || statusAction === "Close") {
+        mappedStatus = "Closed";
+      } else {
+        throw new Error("Invalid status action");
+      }
+
+      const response = await axios.put(
+        `${BASE_URL}/ReturnProduct/updateStatus/${id}`,
+        {
+          status: mappedStatus,
+          remarks: remarks.trim(),
+          userLogged: userLoggedID,
+        }
+      );
+
+      if (response.data.success) {
+        swal({
+          title: "Success!",
+          text: "Return product updated successfully",
+          icon: "success",
+          button: false,
+          timer: 2500,
+        }).then(() => {
+          navigate("/delivery-management/return-products");
+          window.scrollTo(0, 0);
+        });
+      } else {
+        swal(
+          "Error",
+          response.data.message || "Failed to update status",
+          "error"
+        );
+      }
+    } catch (error) {
+      console.error("Error updating status:", error);
+      swal("Error", "Failed to update status", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  return (
+    <div className="h-100 w-100 border bg-white custom-container">
+      <div className="w-100 p-2 d-flex flex-row justify-content-between">
+        <div className="d-flex flex-column title-custom2">
+          <span className="fs-3">
+            <button
+              onClick={() => navigate("/delivery-management/return-products")}
+              className="text-dark border-0"
+              style={{ background: "none" }}
+            >
+              <i className="bx bx-arrow-back"></i>
+            </button>
+            <span className="mx-2">RETURN PRODUCT DETAILS</span>
+          </span>
+        </div>
+      </div>
+      <div className="container-fluid mt-3">
+        <div className="row">
+          <div className="col-md-6 mb-2">
+            <label htmlFor="scheduleCode">Return Product Code</label>
+            <input
+              type="text"
+              id="scheduleCode"
+              className="form-control"
+              readOnly
+              value={fetchReturnProduct?.return_product_code || "--"}
+            />
+          </div>
+          <div className="col-md-6 mb-2">
+            <label htmlFor="returnName">Return Product Name</label>
+            <input
+              type="text"
+              id="returnName"
+              className={`form-control ${
+                validationErrors.returnName ? "is-invalid" : ""
+              }`}
+              placeholder="Enter Name"
+              required
+              readOnly
+              value={fetchReturnProduct?.title || ""}
+              onChange={(e) => {
+                setFetchReturnProduct({
+                  ...fetchReturnProduct,
+                  title: e.target.value,
+                });
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="row">
+          <div className="col-md-6 mb-2">
+            <label htmlFor="totalQuantity">Total Quantity</label>
+            <input
+              type="text"
+              id="totalQuantity"
+              className={`form-control ${
+                validationErrors.totalQuantity ? "is-invalid" : ""
+              }`}
+              readOnly
+              placeholder="0"
+              value={formatNumberWithCommas(totalReturnQty)}
+            />
+          </div>
+          <div className="col-md-6 mb-2">
+            <label htmlFor="moveTo">Move to</label>
+            <input
+              type="text"
+              name=""
+              id="moveTo"
+              value={fetchReturnProduct?.move_to || ""}
+              className="form-control"
+              readOnly
+            />
+          </div>
+        </div>
+
+        <div className="row">
+          <div className="col-md-6 mb-2">
+            <label htmlFor="remarks">
+              Remarks <span className="text-danger">*</span>
+            </label>
+            <textarea
+              id="remarks"
+              cols="3"
+              rows="3"
+              readOnly
+              className={`form-control ${
+                validationErrors.remarks ? "is-invalid" : ""
+              }`}
+              placeholder="Enter Remarks"
+              required
+              value={fetchReturnProduct?.remarks || ""}
+              onChange={(e) => {
+                setFetchReturnProduct({
+                  ...fetchReturnProduct,
+                  remarks: e.target.value,
+                });
+              }}
+            ></textarea>
+          </div>
+          <div className="col-md-6 mb-2"></div>
+        </div>
+      </div>
+
+      <div
+        className="w-100 d-flex align-items-center py-2"
+        style={{
+          paddingInline: "0.75rem",
+        }}
+      >
+        <span>Return Product Details</span>
+        <hr className="flex-grow-1 mx-3" />
+        {/* <Button variant="primary" className="py-1 px-2" onClick={handleShow}>
+          Add Item
+        </Button> */}
+      </div>
+
+      <div className="container-fluid mt-1">
+        <div className="table-responsive">
+          <table className="table table-hover" id="scheduleTable">
+            <thead className="bg-light">
+              <tr>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center ">
+                    SCHEDULE CODE
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center ">
+                    SALES INVOICE
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center ">
+                    CUSTOMER NAME
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center ">
+                    PRODUCT CODE
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center ">
+                    PRODUCT NAME
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center ">
+                    TOTAL ORDERED
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center ">
+                    TOTAL QUANTITY
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center ">
+                    TOTAL RECEIVED
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="text-muted text-center"
+                  style={{
+                    backgroundColor: "#EBEFF4",
+                    cursor: "pointer",
+                    padding: "0.3rem 0.5rem",
+                    whiteSpace: "nowrap",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div className="d-flex flex-row align-items-center ">
+                    RETURN QUANTITY
+                    <span className="d-flex flex-column mx-2">
+                      <i
+                        className="fa-solid fa-chevron-up"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                      <i
+                        className="fa-solid fa-chevron-down"
+                        style={{ fontSize: 8 }}
+                      ></i>
+                    </span>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagination.loading ? (
+                <tr>
+                  <td colSpan="7" className="text-center py-4">
+                    <div className="d-flex justify-content-center align-items-center">
+                      <div
+                        className="spinner-border text-primary"
+                        role="status"
+                      >
+                        <span className="visually-hidden">Loading...</span>
+                      </div>
+                      <span className="ms-2">Loading data...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : pagination.error ? (
+                <tr>
+                  <td colSpan="9" className="text-center text-danger py-4">
+                    <div className="d-flex flex-column align-items-center">
+                      <i className="fas fa-exclamation-triangle fs-4 mb-2"></i>
+                      <span>Error loading data</span>
+                      <small className="text-muted mt-1">
+                        {pagination.error.message}
+                      </small>
+                    </div>
+                  </td>
+                </tr>
+              ) : pagination.data.length === 0 ? (
+                <tr>
+                  <td colSpan="9" className="text-center py-4">
+                    <div className="d-flex flex-column align-items-center">
+                      <span>No data available</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                pagination.data.map((item, index) => {
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        {item?.rpl_schedule_product_list_id?.spl_schedule_id
+                          ?.schedule_code || "--"}
+                      </td>
+                      <td>
+                        {item?.rpl_schedule_product_list_id
+                          ?.spl_schedule_invoice_id?.transaction_id || "--"}
+                      </td>
+                      <td>
+                        {item?.rpl_schedule_product_list_id
+                          ?.spl_schedule_invoice_id?.customer?.company_name ||
+                          "--"}
+                      </td>
+                      <td>
+                        {item?.rpl_schedule_product_list_id
+                          ?.schedule_product_list_product_id?.product_code ||
+                          "--"}
+                      </td>
+                      <td>
+                        {item?.rpl_schedule_product_list_id
+                          ?.schedule_product_list_product_id?.product_name ||
+                          "--"}
+                      </td>
+                      <td>
+                        {(
+                          item?.rpl_schedule_product_list_id
+                            ?.non_modify_quantity || 0
+                        ).toLocaleString()}
+                      </td>
+                      <td>
+                        {(
+                          item?.rpl_schedule_product_list_id
+                            ?.original_quantity || 0
+                        ).toLocaleString()}
+                      </td>
+                      <td>
+                        {(
+                          item?.rpl_schedule_product_list_id
+                            ?.delivered_quantity || 0
+                        ).toLocaleString()}
+                      </td>
+                      <td>{(item?.return_quantity || 0).toLocaleString()}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="w-100 d-flex align-items-center justify-content-end mt-4">
+        {fetchReturnProduct?.status !== "Declined" &&
+          fetchReturnProduct?.status !== "Closed" && (
+            <div className="d-flex gap-2">
+              {fetchReturnProduct?.status === "Approved" ? (
+                <Button
+                  variant="success"
+                  style={{ padding: "0.7rem 1.7rem" }}
+                  onClick={() => handleStatusActionClick("Closed")}
+                >
+                  Mark as Closed
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="danger"
+                    style={{ padding: "0.7rem 1.7rem" }}
+                    onClick={() => handleStatusActionClick("Decline")}
+                  >
+                    Decline
+                  </Button>
+                  <Button
+                    variant="primary"
+                    style={{ padding: "0.7rem 1.7rem" }}
+                    onClick={() => handleStatusActionClick("Approve")}
+                  >
+                    Approve
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+      </div>
+
+      <Modal
+        show={showStatusModal}
+        onHide={handleStatusModalClose}
+        backdrop="static"
+      >
+        <Modal.Header closeButton>
+          <Modal.Title className="h6">Confirmation</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <div className="mb-3">
+            <h6>
+              Are you sure you want to {statusAction.toLowerCase()} this return
+              product?
+            </h6>
+            {(statusAction === "Decline" ||
+              statusAction === "Approve" ||
+              statusAction === "Closed") && (
+              <div className="mt-3">
+                <label htmlFor="statusRemarks" className="form-label">
+                  Remarks <span className="text-muted">(Optional)</span>
+                </label>
+                <textarea
+                  id="statusRemarks"
+                  className="form-control"
+                  rows="3"
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Enter Remarks"
+                />
+              </div>
+            )}
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="outline-secondary" onClick={handleStatusModalClose}>
+            Cancel
+          </Button>
+          <Button
+            variant={
+              statusAction === "Approve"
+                ? "primary"
+                : statusAction === "Decline"
+                ? "danger"
+                : "success" // For Delivered
+            }
+            onClick={handleSubmitStatus}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <>
+                <span
+                  className="spinner-border spinner-border-sm me-2"
+                  role="status"
+                  aria-hidden="true"
+                ></span>
+                {statusAction === "Approve" && "Sumbitting..."}
+                {statusAction === "Decline" && "Sumbitting..."}
+                {statusAction === "Closed" && "Sumbitting..."}
+              </>
+            ) : (
+              <>
+                {statusAction === "Approve" && "Approve"}
+                {statusAction === "Decline" && "Decline"}
+                {statusAction === "Closed" && "Closed"}
+              </>
+            )}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    </div>
+  );
+};
+
+export default ReturnProductDetails_Update;

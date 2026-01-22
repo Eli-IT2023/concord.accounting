@@ -1,0 +1,1978 @@
+import axios from "axios";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+} from "react";
+import { Button, Form, Modal, OverlayTrigger, Tooltip } from "react-bootstrap";
+import { useForm } from "react-hook-form";
+import { ThreeDot } from "react-loading-indicators";
+import { useNavigate, useParams } from "react-router-dom";
+import swal from "sweetalert";
+import dayjs from "dayjs";
+import BASE_URL from "../../../assets/global/url";
+import NoAccess from "../../../assets/img/NoAccess.png";
+import { PaginationControls } from "../../../hooks/customHook/paginationHook/usePagination";
+import { useServerPagination } from "../../../hooks/customHook/paginationHook/useServerPagination";
+import useDecodeToken from "../../../hooks/customHook/useDecodeToken";
+
+const CreateUpdateFormulation = ({ authrztn }) => {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const [isUpdate, setIsUpdate] = useState(false);
+  const userLoggedID = useDecodeToken();
+  const debounceTimeout = useRef(null);
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [validated, setValidated] = useState(false);
+  const [packagingData, setPackagingData] = useState([]);
+  const [sourceData, setSourceData] = useState([]);
+  const [showInstructions, setShowInstructions] = useState({});
+  const [materialsModal, setMaterialsModal] = useState(false);
+  const [parameterModal, setParameterModal] = useState(false);
+  const [formulationData, setFormulationData] = useState(null);
+  const [currentWeight, setCurrentWeight] = useState(0);
+
+  const [paginationUrl, setPaginationUrl] = useState(
+    BASE_URL + "/formulation/getMaterials"
+  );
+
+  const [paginationParam, setPaginationParam] = useState(
+    BASE_URL + "/formulation/getParameters"
+  );
+
+  const [currentParameterCategory, setCurrentParameterCategory] =
+    useState("Chemical"); // Default to Chemical
+
+  const pagination = useServerPagination(paginationUrl, 10);
+  const paginationParameter = useServerPagination(paginationParam, 10);
+
+  const [selectedMaterials, setSelectedMaterials] = useState([]);
+  const [selectedParameters, setSelectedParameters] = useState([]);
+  const [deletedRemarks, setDeletedRemarks] = useState([]);
+  const [currentProductName, setCurrentProductName] = useState("");
+  const [currentPrefix, setCurrentPrefix] = useState("");
+
+  const [isExistingFormulation, setIsExisitingFormulation] = useState(false);
+
+  const handleProductNameOnChange = (productName) => {
+    clearTimeout(debounceTimeout.current);
+
+    debounceTimeout.current = setTimeout(async () => {
+      setCurrentProductName(productName);
+    }, 555);
+  };
+
+  const handlePrefixOnChange = (prefix) => {
+    clearTimeout(debounceTimeout.current);
+
+    debounceTimeout.current = setTimeout(async () => {
+      setCurrentPrefix(prefix);
+    }, 555);
+  };
+
+  useEffect(() => {
+    const checkNameAndPrefix = async () => {
+      if (!currentProductName || !currentPrefix) {
+        console.log("Skipping check - missing product name or prefix");
+        return;
+      }
+
+      try {
+        const res = await axios.get(
+          `${BASE_URL}/product/fetchProductNameAndPrefix`,
+          {
+            params: {
+              productName: currentProductName,
+              prefix: currentPrefix,
+              isUpdate: isUpdate.toString(),
+              id,
+            },
+          }
+        );
+
+        if (res.data.success) {
+          if (res.data.exists) {
+            const confirmed = await swal({
+              icon: "warning",
+              title: "Oops!",
+              text: `Product Name with the same Prefix already exists.`,
+              button: "OK",
+              dangerMode: true,
+              closeOnClickOutside: false,
+              closeOnEsc: false,
+            });
+
+            if (confirmed) {
+              const prefixInput = document.getElementById("prefixInput");
+              const pNameInput = document.getElementById("productNameInput");
+
+              if (!isUpdate) {
+                pNameInput.value = "";
+                prefixInput.value = "";
+                setCurrentPrefix("");
+                setCurrentProductName("");
+              } else {
+                setIsExisitingFormulation(true);
+                window.scrollTo(0, 0);
+              }
+            }
+          } else {
+            console.log("Product doesn't have the same combination!");
+            setIsExisitingFormulation(false);
+          }
+        }
+      } catch (err) {
+        console.error("Error checking product:", err);
+      }
+    };
+
+    checkNameAndPrefix();
+  }, [currentProductName, currentPrefix]);
+
+  const checkProductCode = async (e, productCode) => {
+    clearTimeout(debounceTimeout.current);
+
+    debounceTimeout.current = setTimeout(async () => {
+      try {
+        const res = await axios.get(`${BASE_URL}/product/fetchProductCode`, {
+          params: { id: productCode },
+        });
+
+        if (res.data.success && res.data.data) {
+          console.log("Product exists:", res.data.data);
+
+          const confirmed = await swal({
+            icon: "warning",
+            title: "Oops!",
+            text: `Product Code already exists.`,
+            button: "OK",
+            dangerMode: true,
+            closeOnClickOutside: false,
+            closeOnEsc: false,
+          });
+
+          if (confirmed) {
+            e.target.value = "";
+          }
+        }
+      } catch (err) {
+        console.error("Error checking product:", err);
+      }
+    }, 500);
+  };
+
+  const toggleInstruction = (id) => {
+    setShowInstructions((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
+
+  const { register, control, setValue, getValues, watch } = useForm({
+    defaultValues: {
+      productCode: "",
+      clientCode: "",
+      productName: "",
+      productCategory: "Finish Product",
+      packaging_id: "",
+      remarks: "",
+      prefix: "",
+      weight: 0,
+      color: "",
+      odor_and_taste: "",
+      appearance: "",
+    },
+  });
+
+  // const reloadProductCode = () => {
+  //   axios
+  //     .get(BASE_URL + "/product/lastCode")
+  //     .then((res) => {
+  //       const codes =
+  //         res.data !== null ? res.data.toString().padStart(6, "0") : "000001";
+  //       setValue("productCode", codes);
+  //       setIsLoading(false);
+  //     })
+  //     .catch((err) => console.log(err));
+  // };
+
+  const fetchPackging = async () => {
+    try {
+      const res = await axios.get(`${BASE_URL}/product/fetchDataPackaging`);
+      setPackagingData(res.data);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const fetchSource = async () => {
+    try {
+      const res = await axios.get(`${BASE_URL}/product/fetchDataSource`);
+      setSourceData(res.data);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const fetchRemarksHistory = (productId) => {
+    axios
+      .get(BASE_URL + "/formulation/getRemarksHistory", {
+        params: {
+          product_id: productId,
+        },
+      })
+      .then((res) => {
+        if (res.data) {
+          setRemarksHistoryData(res.data);
+        }
+      })
+      .catch((error) => {
+        console.error("Error fetching remarks history:", error);
+      });
+  };
+
+  const [originalProductName, setOriginalProductName] = useState("");
+  const [originalPrefix, setOriginalPrefix] = useState("");
+
+  const fetchFormulationData = async (formulationId) => {
+    try {
+      const response = await axios.get(
+        `${BASE_URL}/formulation/getSpecificFormulation`,
+        {
+          params: { id: formulationId },
+        }
+      );
+
+      if (response.data) {
+        const data = response.data;
+        setFormulationData(data);
+        setOriginalProductName(data.product_name || "");
+        setOriginalPrefix(data.prefix || "");
+
+        setValue("productCode", data.product_code || "");
+        setValue("clientCode", data.client_code || "");
+        setValue("productName", data.product_name || "");
+        setValue("productCategory", "Finish Product");
+        setValue("packaging_id", data.packaging_id?.toString() || "");
+        setValue("prefix", data.prefix || "");
+        setValue("weight", data.weight || 0);
+        setValue("remarks", data.description || "");
+        setValue("color", data.color || "");
+        setValue("odor_and_taste", data.odor_and_taste || "");
+        setValue("appearance", data.appearance || "");
+
+        setCurrentPrefix(data.prefix || "");
+
+        console.log(data, "dataaaa");
+
+        if (data.materials && Array.isArray(data.materials)) {
+          setSelectedMaterials(data.materials);
+        } else {
+          console.warn("No materials data found or invalid format");
+          setSelectedMaterials([]);
+        }
+
+        if (data.parameters && Array.isArray(data.parameters)) {
+          setSelectedParameters(
+            data.parameters.map((item) => ({
+              ...item,
+              finishParamTagId: item.finishParamTagId,
+              isDeleted: item.isDeleted,
+              uom: item.uom || 0,
+              category: item.category || "", // Ensure category exists
+            }))
+          );
+        } else {
+          console.warn("No parameters data found or invalid format");
+          setSelectedParameters([]);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching formulation:", error);
+      swal({
+        title: "Error",
+        text:
+          "Failed to fetch formulation data: " +
+          (error.response?.data?.message || error.message),
+        icon: "error",
+        buttons: false,
+        timer: 3000,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (id) {
+        setIsUpdate(true);
+        fetchFormulationData(id);
+      } else {
+        // reloadProductCode();
+      }
+      fetchPackging();
+      fetchSource();
+    });
+
+    return () => clearTimeout(timer);
+  }, [id]);
+
+  const handleCheckSelectProduct = (item, isChecked) => {
+    setSelectedMaterials((prev) => {
+      const existing = prev.find((i) => i.id === item.id);
+
+      if (isChecked) {
+        if (existing) {
+          return prev.map((i) =>
+            i.id === item.id
+              ? {
+                  ...i,
+                  isDeleted: false,
+                  composition: 0,
+                  qualified: false,
+                  instruction: "",
+                  product_tag_vendor_id: item.id, // Ensure this is always set to item.id
+                }
+              : i
+          );
+        } else {
+          return [
+            ...prev,
+            {
+              ...item,
+              isDeleted: false,
+              composition: 0,
+              qualified: false,
+              instruction: "",
+              product_tag_vendor_id: item.id, // Ensure this is always set to item.id
+            },
+          ];
+        }
+      } else {
+        return prev.map((i) =>
+          i.id === item.id ? { ...i, isDeleted: true } : i
+        );
+      }
+    });
+  };
+
+  const [selectAllMaterials, setSelectAllMaterials] = useState(false);
+  const handleSelectAllMaterials = (e) => {
+    const isChecked = e.target.checked;
+    setSelectAllMaterials(isChecked);
+
+    if (isChecked) {
+      // Get all active items from the current page
+      const activeItems =
+        pagination.data?.filter((item) => item.status === "Active") || [];
+      // Select all items that aren't already selected
+      activeItems.forEach((item) => {
+        if (!isItemSelected(item)) {
+          handleCheckSelectProduct(item, true);
+        }
+      });
+    } else {
+      // Deselect all currently selected items
+      selectedMaterials.forEach((item) => {
+        if (!item.isDeleted) {
+          handleCheckSelectProduct(item, false);
+        }
+      });
+    }
+  };
+
+  const isItemSelected = (item) =>
+    selectedMaterials.some((i) => i.id === item.id && i.isDeleted === false);
+
+  const [selectAllParameters, setSelectAllParameters] = useState(false);
+
+  const handleSelectAllParameters = (e) => {
+    const isChecked = e.target.checked;
+    setSelectAllParameters(isChecked);
+
+    const activeItems =
+      paginationParameter.data?.filter(
+        (item) =>
+          item.status === "Active" && item.category === currentParameterCategory
+      ) || [];
+
+    if (isChecked) {
+      activeItems.forEach((item) => {
+        if (!isParameterSelected(item)) {
+          handleCheckSelectParameter(item, true);
+        }
+      });
+    } else {
+      selectedParameters.forEach((item) => {
+        if (!item.isDeleted && item.category === currentParameterCategory) {
+          handleCheckSelectParameter(item, false);
+        }
+      });
+    }
+  };
+
+  const handleCheckSelectParameter = (item, isChecked) => {
+    setSelectedParameters((prev) => {
+      const existing = prev.find((i) => i.id === item.id);
+
+      if (isChecked) {
+        if (existing) {
+          return prev.map((i) =>
+            i.id === item.id
+              ? { ...i, isDeleted: false, category: item.category } // Update category
+              : i
+          );
+        } else {
+          return [
+            ...prev,
+            {
+              ...item,
+              isDeleted: false,
+              value: 0,
+              category: item.category, // Use current category
+            },
+          ];
+        }
+      } else {
+        return prev.map((i) =>
+          i.id === item.id ? { ...i, isDeleted: true } : i
+        );
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (pagination.data) {
+      const activeItems = pagination.data.filter(
+        (item) => item.status === "Active"
+      );
+      const allSelected =
+        activeItems.length > 0 &&
+        activeItems.every((item) => isItemSelected(item));
+      setSelectAllMaterials(allSelected);
+    }
+  }, [selectedMaterials, pagination.data]);
+
+  useEffect(() => {
+    if (paginationParameter.data) {
+      const activeItems = paginationParameter.data.filter(
+        (item) => item.status === "Active"
+      );
+      const allSelected =
+        activeItems.length > 0 &&
+        activeItems.every((item) => isParameterSelected(item));
+      setSelectAllParameters(allSelected);
+    }
+  }, [selectedParameters, paginationParameter.data]);
+
+  const handleInputChange = (productTagVendorId, value) => {
+    // two decimal places
+    const decimalRegex = /^\d*\.?\d{0,2}$/;
+
+    if (!decimalRegex.test(value)) return;
+
+    const numValue = value === "" ? 0 : Number(value);
+
+    if (isNaN(numValue)) {
+      return;
+    }
+
+    const currentTotal = selectedMaterials
+      .filter(
+        (item) => item.isDeleted === false && item.id !== productTagVendorId
+      )
+      .reduce((sum, item) => sum + (Number(item.composition) || 0), 0);
+
+    if (currentTotal + numValue > 100) {
+      swal({
+        icon: "warning",
+        title: "Composition Limit Exceeded",
+        text: "The total composition cannot exceed 100%.",
+      });
+
+      setSelectedMaterials((prev) =>
+        prev.map((item) =>
+          item.id === productTagVendorId ? { ...item, composition: 0 } : item
+        )
+      );
+    } else {
+      setSelectedMaterials((prev) =>
+        prev.map((item) =>
+          item.id === productTagVendorId
+            ? { ...item, composition: value } // keep the input value as string for better control
+            : item
+        )
+      );
+    }
+  };
+
+  const calculateTotalComposition = () => {
+    return selectedMaterials
+      .filter((item) => item.isDeleted === false)
+      .reduce((sum, item) => sum + (Number(item.composition) || 0), 0);
+  };
+
+  const countActiveProducts = () => {
+    return selectedMaterials.filter((item) => item.isDeleted === false).length;
+  };
+
+  const handleParameterInputChange = (paramId, uom) => {
+    setSelectedParameters((prev) =>
+      prev.map((item) => (item.id === paramId ? { ...item, uom: uom } : item))
+    );
+  };
+
+  const handleParameterSelectedChange = (paramId, category) => {
+    setSelectedParameters((prev) =>
+      prev.map((item) =>
+        item.id === paramId ? { ...item, category: category } : item
+      )
+    );
+  };
+
+  const handleTextareaChange = (productTagVendorId, value) => {
+    setSelectedMaterials((prev) =>
+      prev.map((item) =>
+        item.id === productTagVendorId ? { ...item, instruction: value } : item
+      )
+    );
+  };
+
+  const handleCheckboxChange = (productTagVendorId, checked) => {
+    setSelectedMaterials((prev) =>
+      prev.map((item) =>
+        item.id === productTagVendorId ? { ...item, qualified: checked } : item
+      )
+    );
+  };
+
+  const isParameterSelected = (item) => {
+    return selectedParameters.some(
+      (i) =>
+        i.id === item.id &&
+        i.isDeleted === false &&
+        i.category === item.category
+    );
+  };
+
+  const watchedWeight = watch("weight");
+
+  useEffect(() => {
+    const numWeight = Number(watchedWeight) || 0;
+    setCurrentWeight(numWeight);
+  }, [watchedWeight]);
+
+  const totalWeight = getValues("weight");
+  const totalTargetWeight = useMemo(() => {
+    return selectedMaterials
+      .filter((item) => !item.isDeleted)
+      .reduce(
+        (sum, item) => sum + (Number(item.composition) / 100) * currentWeight,
+        0
+      );
+  }, [selectedMaterials, currentWeight]);
+
+  const calculateTargetWeight = useCallback(
+    (composition) => {
+      const comp = Number(composition) || 0;
+      return (comp / 100) * currentWeight;
+    },
+    [currentWeight]
+  );
+
+  const handleSubmitFormulation = (e) => {
+    e.preventDefault();
+
+    const form = e.currentTarget;
+    if (form.checkValidity() === false) {
+      e.preventDefault();
+      e.stopPropagation();
+      swal({
+        icon: "error",
+        title: "Fields are required",
+        text: "Please fill in the red text fields.",
+      });
+    } else {
+      const confirmMessage = isUpdate
+        ? "Update this formulation?"
+        : "Create this new finish goods?";
+
+      swal({
+        title: confirmMessage,
+        text: "",
+        icon: "warning",
+        buttons: true,
+        dangerMode: true,
+      }).then((confirmed) => {
+        if (confirmed) {
+          const formData = getValues();
+
+          const filteredSelectedMaterials = selectedMaterials
+            .filter((item) => item.isDeleted === false)
+            .map((item) => ({
+              ...item,
+              targetWeight:
+                (Number(item.composition) / 100) * Number(totalWeight) || 0,
+            }));
+
+          const filteredParams = selectedParameters.filter(
+            (item) => item.isDeleted === false
+          );
+
+          const endpoint = isUpdate
+            ? `${BASE_URL}/formulation/updateFormulation`
+            : `${BASE_URL}/formulation/createFinishGoods`;
+
+          const requestData = {
+            formData,
+            userLoggedID,
+            deletedRemarks,
+            selectedMaterials: filteredSelectedMaterials,
+            selectedParameters: filteredParams,
+          };
+
+          console.log(
+            "Data being sent to server:",
+            JSON.stringify(requestData, null, 2)
+          );
+
+          if (isUpdate) {
+            requestData.id = id;
+          }
+          axios.post(endpoint, requestData).then((res) => {
+            if (res.status === 200) {
+              const successMessage = isUpdate
+                ? "Formulation updated successfully"
+                : "Finish Goods created successfully";
+
+              swal({
+                title: "Success",
+                text: successMessage,
+                icon: "success",
+                buttons: false,
+                timer: 2000,
+                dangerMode: true,
+              }).then(() => {
+                navigate("/inventory/formulation");
+                window.scrollTo(0, 0);
+              });
+            } else if (res.status === 205) {
+              swal({
+                title: "Insufficient Stock",
+                text: "",
+                icon: "error",
+                buttons: false,
+                timer: 2000,
+                dangerMode: true,
+              });
+            } else {
+              swal({
+                title: "Something Went Wrong",
+                text: "Please contact your support immediately",
+                icon: "error",
+                buttons: false,
+                timer: 2000,
+                dangerMode: true,
+              });
+            }
+          });
+        }
+      });
+    }
+    setValidated(true);
+  };
+
+  const shouldPrefixBeReadOnly = useCallback(() => {
+    if (!isUpdate) return false;
+    const currentProductName = getValues("productName");
+    const currentPrefix = getValues("prefix");
+    return (
+      currentProductName === originalProductName &&
+      currentPrefix &&
+      currentPrefix.trim() !== ""
+    );
+  }, [isUpdate, getValues, originalProductName]);
+
+  const [showRemarksHistoryModal, setShowRemarksHistoryModal] = useState(false);
+  const [remarksHistoryData, setRemarksHistoryData] = useState([]);
+
+  const handleShowRemarksHistory = () => {
+    // Fetch the price history
+    fetchRemarksHistory(id); // id is from useParams()
+    setShowRemarksHistoryModal(true);
+  };
+
+  const handleDeleteRemarks = (remarksId) => {
+    if (deletedRemarks.includes(remarksId)) return;
+    setDeletedRemarks((prevIds) => {
+      const updatedIds = [...prevIds, remarksId];
+      console.log("Updated deletedRemarks:", updatedIds);
+      return updatedIds;
+    });
+  };
+
+  const handleRestoreRemarks = (remarksId) => {
+    if (!deletedRemarks.includes(remarksId)) return;
+    setDeletedRemarks((prevIds) => prevIds.filter((id) => id !== remarksId));
+  };
+
+  const handleClose = () => {
+    setShowRemarksHistoryModal(false);
+  };
+
+  useEffect(() => {
+    if (id) {
+      fetchRemarksHistory(id); // id is from useParams()
+    }
+  }, [id]);
+
+  useEffect(() => {
+    setPaginationParam(
+      `${BASE_URL}/formulation/getParameters?category=${currentParameterCategory}`
+    );
+  }, [currentParameterCategory]);
+
+  useEffect(() => {
+    if (paginationParameter.data) {
+      const activeItems = paginationParameter.data.filter(
+        (item) =>
+          item.status === "Active" && item.category === currentParameterCategory
+      );
+
+      const allSelected =
+        activeItems.length > 0 &&
+        activeItems.every((item) => isParameterSelected(item));
+
+      setSelectAllParameters(allSelected);
+    }
+  }, [selectedParameters, paginationParameter.data, currentParameterCategory]);
+
+  const renderSource = (item) => {
+    if (item.source && typeof item.source === "object" && item.source.name) {
+      return item.source.name;
+    }
+    if (item.sourceName) {
+      return item.sourceName;
+    }
+    if (typeof item.source === "string") {
+      return item.source;
+    }
+    return "";
+  };
+  return (
+    <div className="h-100 w-100 border bg-white custom-container">
+      {isLoading ? (
+        <div className="loading-container">
+          <ThreeDot
+            variant="brick-stack"
+            color="#6290FE"
+            size="large"
+            text="Loading Data..."
+            textColor=""
+          />
+        </div>
+      ) : authrztn.includes("Productions-View") ? (
+        <>
+          <div className="w-100 p-2 d-flex flex-row justify-content-between">
+            <div className="d-flex flex-column title-custom2">
+              <span className="fs-3">
+                <button
+                  onClick={() => navigate("/inventory/formulation")}
+                  className="text-dark border-0"
+                  style={{ background: "none" }}
+                >
+                  <i className="bx bx-arrow-back"></i>
+                </button>
+                {isUpdate ? "UPDATE FINISHED GOODS" : "CREATE FINISHED GOODS"}
+              </span>
+            </div>
+          </div>
+          <Form
+            noValidate
+            validated={validated}
+            onSubmit={handleSubmitFormulation}
+          >
+            <div className="container-fluid mt-4">
+              <div className="row mb-3">
+                <div className="col-sm-1" style={{ maxWidth: "150px" }}>
+                  <label htmlFor="cutoff">
+                    Prefix
+                    <span className="text-danger ps-1">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    readOnly={shouldPrefixBeReadOnly()}
+                    required
+                    id="prefixInput"
+                    className="form-control p-3"
+                    style={{
+                      letterSpacing: "1px",
+                      width: "100%",
+                      minWidth: "50px",
+                      ...(isExistingFormulation &&
+                        !shouldPrefixBeReadOnly() && {
+                          outline: "2px solid red",
+                        }),
+                    }}
+                    {...register("prefix", {
+                      pattern: {
+                        value: /^[A-Z]{0,3}$/,
+                      },
+                    })}
+                    onChange={(e) => {
+                      const value = e.target.value
+                        .replace(/[^A-Za-z]/g, "")
+                        .toUpperCase()
+                        .slice(0, 3);
+                      e.target.value = value;
+                      handlePrefixOnChange(value);
+                    }}
+                  />
+                </div>
+                <div className="col-sm-5">
+                  <label htmlFor="cutoff">
+                    Product Code
+                    <span className="text-danger ps-1">*</span>
+                  </label>
+                  <input
+                    placeholder="Enter Product Code"
+                    type="text"
+                    name=""
+                    id="productCodeInput"
+                    readOnly={isUpdate}
+                    required
+                    className="form-control p-3"
+                    {...register("productCode", {
+                      onChange: (e) => checkProductCode(e, e.target.value),
+                    })}
+                  />
+                </div>
+                <div className="col-sm">
+                  <label htmlFor="cutoff">Product Category</label>
+                  <Form.Select id="productCategory" className="p-3" disabled>
+                    <option value="Finish Product" selected>
+                      Finish Product
+                    </option>
+                  </Form.Select>
+                </div>
+              </div>
+
+              <div className="row mb-3">
+                <div className="col-sm-6">
+                  <label htmlFor="cutoff">
+                    Product Name
+                    <span className="text-danger ps-1">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name=""
+                    id="productNameInput"
+                    {...register("productName", {
+                      onChange: (e) =>
+                        handleProductNameOnChange(e.target.value),
+                    })}
+                    required
+                    style={
+                      isExistingFormulation ? { outline: "2px solid red" } : {}
+                    }
+                    className="form-control p-3"
+                    placeholder="Enter Product Name"
+                  />
+                </div>
+                <div className="col-sm">
+                  <label htmlFor="cutoff">
+                    Packaging
+                    <span className="text-danger ps-1">*</span>
+                  </label>
+                  <Form.Select
+                    className="form-select p-3"
+                    id="packaging_id"
+                    {...register("packaging_id")}
+                    required
+                  >
+                    <option disabled value="">
+                      Select Packaging
+                    </option>
+                    {packagingData.map((data, index) => (
+                      <option key={index} value={data.id}>
+                        {data.packaging_name}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </div>
+              </div>
+
+              <div className="row">
+                <div className="col-sm"></div>
+                <div className="col-sm">
+                  <label htmlFor="cutoff">Target Weight</label>
+                  <div className="input-group">
+                    <input
+                      type="text"
+                      name=""
+                      id=""
+                      required
+                      {...register("weight")}
+                      className="form-control p-3"
+                      placeholder="Enter Weight"
+                    />
+                    <div className="input-group-prepend">
+                      <div className="input-group-text h-100">
+                        <label>Grams</label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="table-responsive mt-5">
+              <table
+                className="table table-bordered table-hover"
+                id="formulation-table-materials"
+              >
+                <thead className="table-light">
+                  <tr>
+                    <th className="text-center">NO.</th>
+                    <th className="text-center">PRODUCT CODE</th>
+                    <th className="text-center">PRODUCT NAME</th>
+                    <th className="text-center">SUPPLIER</th>
+                    <th className="text-center">
+                      COMPOSITION
+                      <span className="text-danger ps-1">*</span>
+                    </th>
+                    <th className="text-center">ADDED</th>
+                    <th className="text-center">TARGET WEIGHT</th>
+                    <th className="text-center">ACTION</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedMaterials
+                    .filter((item) => item.isDeleted === false)
+                    .map((item, i) => (
+                      <>
+                        <tr key={i}>
+                          <td className="text-center">{i + 1}</td>
+                          <td className="text-center">
+                            {item.product_list?.product_code ||
+                              item.product_list?.client_code}
+                          </td>
+                          <td className="text-center">
+                            {item.product_list?.product_name}
+                          </td>
+                          <td className="text-center">
+                            {item.vendor?.company_name}
+                          </td>
+                          <td className="text-center">
+                            <div className="input-group">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                pattern="^\d*\.?\d{0,1}$"
+                                className="form-control p-3"
+                                value={item.composition || ""}
+                                required
+                                onChange={(e) =>
+                                  handleInputChange(item.id, e.target.value)
+                                }
+                              />
+                              <div className="input-group-prepend">
+                                <div className="input-group-text h-100">
+                                  <label>%</label>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="text-center">
+                            <div className="d-flex justify-content-center align-items-center mt-2">
+                              <input
+                                type="checkbox"
+                                className="form-check-input"
+                                style={{ padding: "0.8rem" }}
+                                checked={item.qualified || false}
+                                onChange={(e) =>
+                                  handleCheckboxChange(
+                                    item.id,
+                                    e.target.checked
+                                  )
+                                }
+                              />
+                            </div>
+                          </td>
+                          <td className="text-center">
+                            {calculateTargetWeight(item.composition)}g
+                          </td>
+                          <td className="text-center">
+                            <i
+                              className="fas fa-trash"
+                              style={{
+                                cursor: "pointer",
+                                color: "red",
+                                fontSize: "1.5rem",
+                              }}
+                              onClick={() =>
+                                handleCheckSelectProduct(
+                                  item,
+                                  !isItemSelected(item)
+                                )
+                              }
+                            ></i>
+
+                            <i
+                              className="fa-solid fa-circle-info ms-2"
+                              onClick={() => toggleInstruction(item.id)}
+                              style={{
+                                cursor: "pointer",
+                                color: "#3590ae",
+                                fontSize: "1.7rem",
+                              }}
+                            ></i>
+                          </td>
+                        </tr>
+                        {showInstructions[item.id] && (
+                          <tr>
+                            <td
+                              colSpan="8"
+                              style={{
+                                backgroundColor: "#D3D3D3",
+                              }}
+                            >
+                              <textarea
+                                className="form-control"
+                                rows="3"
+                                placeholder="Leave Instruction here"
+                                value={item.instruction || ""}
+                                onChange={(e) =>
+                                  handleTextareaChange(item.id, e.target.value)
+                                }
+                              ></textarea>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="w-100 d-flex justify-content-start mt-2">
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                onClick={() => setMaterialsModal(true)}
+              >
+                New Item
+              </button>
+            </div>
+
+            <div className="row mt-3">
+              <div className="col-sm"></div>
+              <div className="col-sm"></div>
+              <div className="col-sm">
+                <div
+                  className="w-100 d-flex flex-row justify-content-between p-2 mb-1"
+                  style={{ backgroundColor: "#d6ebf2" }}
+                >
+                  <span>Record Counts</span>
+                  <span className="text-secondary">
+                    {countActiveProducts()} Product(s)
+                  </span>
+                </div>
+                <div
+                  className="w-100 d-flex flex-row justify-content-between p-2 mb-1"
+                  style={{ backgroundColor: "#d6ebf2" }}
+                >
+                  <span>Total Target Weight</span>
+                  <span className="text-secondary">{totalTargetWeight}g</span>
+                </div>
+                <div
+                  className="w-100 d-flex flex-row justify-content-between p-2"
+                  style={{ backgroundColor: "#d6ebf2" }}
+                >
+                  <span>Total Balance</span>
+                  <span className="text-secondary">
+                    {calculateTotalComposition()}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="w-100 d-flex align-items-center"
+              style={{
+                paddingInline: "0.75rem",
+              }}
+            >
+              <span>Physical</span>
+              <hr className="flex-grow-1 mx-3" />
+            </div>
+
+            <div className="row mb-4">
+              {/* Labels column - becomes row on mobile */}
+              <div className="col-sm-2 d-flex flex-sm-column gap-4 justify-content-center align-items-sm-start flex-row flex-wrap justify-content-sm-start mb-3 mb-sm-0">
+                <span className="m-1 m-sm-3 w-100 ">Color</span>
+                <span className="m-1 m-sm-3 w-100 ">Odor and Taste</span>
+                <span className="m-1 m-sm-3 w-100 ">Appearance</span>
+              </div>
+
+              <div className="col-sm-10 d-flex flex-column gap-3">
+                <Form.Control
+                  as="textarea"
+                  rows={2}
+                  maxLength={250}
+                  required
+                  placeholder="Describe the color"
+                  {...register("color")}
+                />
+                <Form.Control
+                  as="textarea"
+                  rows={2}
+                  maxLength={250}
+                  required
+                  placeholder="Describe the odor & taste"
+                  {...register("odor_and_taste")}
+                />
+                <Form.Control
+                  as="textarea"
+                  rows={2}
+                  maxLength={250}
+                  required
+                  placeholder="Describe the appearance"
+                  {...register("appearance")}
+                />
+              </div>
+            </div>
+
+            {/* CHEMICAL PARAMETERS TABLE */}
+            <div className="mt-5">
+              <div
+                className="w-100 d-flex align-items-center"
+                style={{
+                  paddingInline: "0.75rem",
+                }}
+              >
+                <hr className="flex-grow-1 mx-2" />
+              </div>
+              <div className="d-flex justify-content-between">
+                <span className="me-2">Chemical Parameters</span>
+
+                <div>
+                  <div
+                    onClick={() => {
+                      setCurrentParameterCategory("Chemical");
+                      setParameterModal(true);
+                    }}
+                    className="btn btn-primary d-flex flex-row align-items-center"
+                  >
+                    <i className="bx bx-plus fs-5"></i>
+                  </div>
+                </div>
+              </div>
+
+              <div className="table-responsive mt-2">
+                <table className="table table-bordered table-striped table-hover">
+                  <thead className="table-light">
+                    <tr>
+                      <th className="text-center">NO.</th>
+                      <th className="text-center">SPECIFICATION NAME</th>
+                      <th className="text-center">UNIT OF MEASURE</th>
+                      <th className="text-center d-none">CATEGORY</th>
+                      <th className="text-center">DATE CREATED</th>
+                      <th className="text-center">ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedParameters
+                      .filter(
+                        (item) =>
+                          !item.isDeleted && item.category === "Chemical"
+                      )
+                      .map((item, i) => (
+                        <tr key={i}>
+                          <td className="text-center">{i + 1}</td>
+                          <td className="text-center">{item.name}</td>
+                          <td className="text-center">
+                            <div className="input-group">
+                              <input
+                                type="text"
+                                className="form-control p-3"
+                                value={item.uom || ""}
+                                required
+                                readOnly
+                                onChange={(e) =>
+                                  handleParameterInputChange(
+                                    item.id,
+                                    e.target.value
+                                  )
+                                }
+                              />
+                            </div>
+                          </td>
+                          <td className="text-center d-none">
+                            <div className="input-group">
+                              <select
+                                value={item.category || ""}
+                                className="form-select p-3"
+                                onChange={(e) =>
+                                  handleParameterSelectedChange(
+                                    item.id,
+                                    e.target.value
+                                  )
+                                }
+                              >
+                                <option>Chemical</option>
+                                <option>Microbiological</option>
+                              </select>
+                            </div>
+                          </td>
+                          <td className="text-center">
+                            {new Date(item.createdAt).toLocaleString("en-US", {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              hour12: true,
+                            })}
+                          </td>
+                          <td className="text-center">
+                            <i
+                              className="fas fa-trash"
+                              style={{
+                                cursor: "pointer",
+                                color: "red",
+                                fontSize: "1.5rem",
+                              }}
+                              onClick={() =>
+                                handleCheckSelectParameter(
+                                  item,
+                                  !isParameterSelected(item)
+                                )
+                              }
+                            ></i>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* MICROBIOLOGICAL PARAMETERS TABLE */}
+            <div className="mt-5">
+              <div
+                className="w-100 d-flex align-items-center"
+                style={{
+                  paddingInline: "0.75rem",
+                }}
+              >
+                <hr className="flex-grow-1 mx-2" />
+              </div>
+              <div className="d-flex justify-content-between">
+                <span className="me-2">Microbiological Parameters</span>
+
+                <div
+                  onClick={() => {
+                    setCurrentParameterCategory("Microbiological");
+                    setParameterModal(true);
+                  }}
+                  className="btn btn-primary d-flex flex-row align-items-center"
+                >
+                  <i className="bx bx-plus fs-5"></i>
+                </div>
+              </div>
+
+              <div className="table-responsive mt-2">
+                <table className="table table-bordered table-striped table-hover">
+                  <thead className="table-light">
+                    <tr>
+                      <th className="text-center">NO.</th>
+                      <th className="text-center">SPECIFICATION NAME</th>
+                      <th className="text-center">UNIT OF MEASURE</th>
+                      <th className="text-center d-none">CATEGORY</th>
+                      <th className="text-center">DATE CREATED</th>
+                      <th className="text-center">ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedParameters
+                      .filter(
+                        (item) =>
+                          !item.isDeleted && item.category === "Microbiological"
+                      )
+                      .map((item, i) => (
+                        <tr key={i}>
+                          <td className="text-center">{i + 1}</td>
+                          <td className="text-center">{item.name}</td>
+                          <td className="text-center">
+                            <div className="input-group">
+                              <input
+                                type="text"
+                                className="form-control p-3"
+                                value={item.uom || ""}
+                                required
+                                readOnly
+                                onChange={(e) =>
+                                  handleParameterInputChange(
+                                    item.id,
+                                    e.target.value
+                                  )
+                                }
+                              />
+                            </div>
+                          </td>
+                          <td className="text-center d-none">
+                            <div className="input-group">
+                              <select
+                                value={item.category || ""}
+                                className="form-select p-3"
+                                onChange={(e) =>
+                                  handleParameterSelectedChange(
+                                    item.id,
+                                    e.target.value
+                                  )
+                                }
+                              >
+                                <option>Chemical</option>
+                                <option>Microbiological</option>
+                              </select>
+                            </div>
+                          </td>
+                          <td className="text-center">
+                            {new Date(item.createdAt).toLocaleString("en-US", {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              hour12: true,
+                            })}
+                          </td>
+                          <td className="text-center">
+                            <i
+                              className="fas fa-trash"
+                              style={{
+                                cursor: "pointer",
+                                color: "red",
+                                fontSize: "1.5rem",
+                              }}
+                              onClick={() =>
+                                handleCheckSelectParameter(
+                                  item,
+                                  !isParameterSelected(item)
+                                )
+                              }
+                            ></i>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* REMARKS  */}
+            <div className="mt-1">
+              <span className="m-2 pb-1">
+                Remarks{" "}
+                {isUpdate && (
+                  <button
+                    title="Remarks History"
+                    type="button"
+                    className={`btn btn-sm p-0 ms-1 position-relative ${
+                      deletedRemarks.length > 0 ? "text-danger" : "text-dark"
+                    }`}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      boxShadow: "none",
+                    }}
+                    onClick={() => handleShowRemarksHistory()}
+                    onMouseOver={(e) => {
+                      e.currentTarget.querySelector("i").style.opacity = "0.7";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.querySelector("i").style.opacity = "1";
+                    }}
+                  >
+                    <i className="fa-solid fa-clock-rotate-left fs-6"></i>
+                    {remarksHistoryData.length > 0 && (
+                      <span
+                        className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-secondary"
+                        style={{
+                          fontSize: "0.5rem",
+                          padding: "0.16.5rem 0.25rem",
+                        }}
+                      >
+                        {remarksHistoryData.length}
+                      </span>
+                    )}
+                    {deletedRemarks.length > 0 && (
+                      <span
+                        className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+                        style={{
+                          fontSize: "0.5rem",
+                          padding: "0.16.5rem 0.25rem",
+                        }}
+                      >
+                        {deletedRemarks.length}
+                      </span>
+                    )}
+                  </button>
+                )}
+              </span>
+
+              <Form.Control
+                as="textarea"
+                rows={3}
+                maxLength={250}
+                placeholder="Leave a remark"
+                {...register("remarks")}
+              />
+            </div>
+
+            <div className="container-fluid mt-5">
+              <div className="row">
+                <div className="col-sm mb-2"></div>
+                <div className="col-sm"></div>
+                <div className="col-sm"></div>
+                <div className="col-sm">
+                  <div className="row">
+                    <div className="col-sm mb-2">
+                      <button
+                        className="btn btn-outline-secondary w-100"
+                        type="button"
+                        onClick={() => {
+                          setDeletedRemarks([]);
+                          setCurrentPrefix("");
+                          setCurrentProductName("");
+                          navigate(`/inventory/formulation`);
+                          window.scrollTo(0, 0);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <div className="col-sm">
+                      <button
+                        className="btn btn-primary w-100"
+                        type="submit"
+                        disabled={isUpdate && isExistingFormulation}
+                      >
+                        {isUpdate ? "Update" : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Form>
+
+          {/* Materials Modal */}
+
+          <Modal
+            size="xl"
+            show={materialsModal}
+            onHide={() => setMaterialsModal(false)}
+          >
+            <Modal.Header closeButton>
+              <Modal.Title>Raw & Consumable Material Lists</Modal.Title>
+            </Modal.Header>
+            <Modal.Body>
+              <div className="row mb-3">
+                <div className="input-group">
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Search"
+                  />
+                </div>
+              </div>
+              <table className="table table-responsive table-hover">
+                <thead className="bg-light">
+                  <tr>
+                    <th
+                      className="text-muted"
+                      style={{ backgroundColor: "#EBEFF4" }}
+                    >
+                      <div className="d-flex justify-content-center align-items-center mt-2">
+                        <input
+                          type="checkbox"
+                          className="form-check-input"
+                          checked={
+                            selectAllMaterials &&
+                            pagination.data
+                              ?.filter((item) => item.status === "Active")
+                              .every((item) => isItemSelected(item))
+                          }
+                          onChange={handleSelectAllMaterials}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    </th>
+                    <th
+                      className="text-muted"
+                      style={{ backgroundColor: "#EBEFF4" }}
+                    >
+                      Product Code
+                    </th>
+                    <th
+                      className="text-muted"
+                      style={{ backgroundColor: "#EBEFF4" }}
+                    >
+                      Product Name
+                    </th>
+                    <th
+                      className="text-muted"
+                      style={{ backgroundColor: "#EBEFF4" }}
+                    >
+                      UOM
+                    </th>
+                    <th
+                      className="text-muted"
+                      style={{ backgroundColor: "#EBEFF4" }}
+                    >
+                      Supplier
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {pagination.loading ? (
+                    <tr>
+                      <td colSpan="5" className="text-center">
+                        Loading...
+                      </td>
+                    </tr>
+                  ) : pagination.error ? (
+                    <tr>
+                      <td colSpan="5" className="text-center text-danger">
+                        Error loading data
+                      </td>
+                    </tr>
+                  ) : pagination.data?.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="text-center">
+                        No data available
+                      </td>
+                    </tr>
+                  ) : (
+                    pagination.data
+                      ?.filter((item) => item.status == "Active")
+                      .map((item) => (
+                        <tr
+                          key={item.id}
+                          onClick={() =>
+                            handleCheckSelectProduct(
+                              item,
+                              !isItemSelected(item)
+                            )
+                          }
+                          style={{ cursor: "pointer" }}
+                        >
+                          <td className="text-center">
+                            <div className="d-flex justify-content-center align-items-center mt-2">
+                              <input
+                                type="checkbox"
+                                className="form-check-input"
+                                checked={isItemSelected(item)}
+                                onChange={(e) =>
+                                  handleCheckSelectProduct(
+                                    item,
+                                    e.target.checked
+                                  )
+                                }
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                          </td>
+                          <td>{item.product_list?.product_code}</td>
+                          <td>{item.product_list?.product_name}</td>
+                          <td>
+                            {item.product_list?.prod_packaging?.packaging_name}
+                          </td>
+                          <td>{item.vendor?.company_name}</td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+              <PaginationControls {...pagination} />
+            </Modal.Body>
+            <Modal.Footer>
+              <Button
+                onClick={() => setMaterialsModal(false)}
+                variant="secondary"
+              >
+                Close
+              </Button>
+            </Modal.Footer>
+          </Modal>
+
+          {/* Parameter Modal */}
+          <Modal
+            size="xl"
+            show={parameterModal}
+            onHide={() => setParameterModal(false)}
+          >
+            <Modal.Header closeButton>
+              <Modal.Title>{currentParameterCategory} Parameters</Modal.Title>
+            </Modal.Header>
+            <Modal.Body>
+              <div className="table-responsive">
+                <table className="table table-hover">
+                  <thead className="bg-light">
+                    <tr>
+                      <th style={{ width: "50px" }}>
+                        <div className="d-flex justify-content-center align-items-center">
+                          <input
+                            type="checkbox"
+                            className="form-check-input"
+                            checked={paginationParameter.data
+                              ?.filter(
+                                (item) =>
+                                  item.status === "Active" &&
+                                  item.category === currentParameterCategory
+                              )
+                              .every((item) => {
+                                const selectedParam = selectedParameters.find(
+                                  (p) => p.id === item.id
+                                );
+                                const effectiveCategory =
+                                  selectedParam?.category || item.category;
+                                return isParameterSelected({
+                                  ...item,
+                                  category: effectiveCategory,
+                                });
+                              })}
+                            onChange={handleSelectAllParameters}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                      </th>
+                      <th className="text-center">No.</th>
+                      <th className="text-center">Specification Name</th>
+                      <th className="text-center">Unit of Measure</th>
+                      <th className="text-center">Description</th>
+                      <th className="text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginationParameter.loading ? (
+                      <tr>
+                        <td colSpan="6" className="text-center py-4">
+                          <ThreeDot
+                            variant="brick-stack"
+                            color="#6290FE"
+                            size="medium"
+                            text="Loading parameters..."
+                          />
+                        </td>
+                      </tr>
+                    ) : paginationParameter.error ? (
+                      <tr>
+                        <td
+                          colSpan="6"
+                          className="text-center text-danger py-4"
+                        >
+                          <i className="fas fa-exclamation-circle me-2"></i>
+                          Failed to load parameters
+                        </td>
+                      </tr>
+                    ) : paginationParameter.data?.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="text-center text-muted py-4">
+                          No {currentParameterCategory.toLowerCase()} parameters
+                          found
+                        </td>
+                      </tr>
+                    ) : (
+                      paginationParameter.data
+                        ?.filter(
+                          (item) =>
+                            item.status === "Active" &&
+                            item.category === currentParameterCategory
+                        )
+                        .map((item, index) => {
+                          const selectedParam = selectedParameters.find(
+                            (p) => p.id === item.id
+                          );
+                          const effectiveCategory =
+                            selectedParam?.category || item.category;
+                          const isSelected = isParameterSelected({
+                            ...item,
+                            category: effectiveCategory,
+                          });
+
+                          return (
+                            <tr
+                              key={item.id}
+                              onClick={() =>
+                                handleCheckSelectParameter(
+                                  { ...item, category: effectiveCategory },
+                                  !isSelected
+                                )
+                              }
+                              style={{ cursor: "pointer" }}
+                            >
+                              <td>
+                                <div className="d-flex justify-content-center align-items-center">
+                                  <input
+                                    type="checkbox"
+                                    className="form-check-input"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      handleCheckSelectParameter(
+                                        {
+                                          ...item,
+                                          category: effectiveCategory,
+                                        },
+                                        e.target.checked
+                                      );
+                                      e.stopPropagation();
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </div>
+                              </td>
+                              <td className="text-center">{index + 1}</td>
+                              <td className="text-center">{item.name}</td>
+                              <td className="text-center">{item.uom || "-"}</td>
+                              <td className="text-center">
+                                {item.description || "-"}
+                              </td>
+                              <td className="text-center">
+                                <span
+                                  className={`badge bg-${
+                                    item.status === "Active"
+                                      ? "success"
+                                      : "secondary"
+                                  }`}
+                                >
+                                  {item.status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="d-flex justify-content-end align-items-center mt-1">
+                <div>
+                  <PaginationControls {...paginationParameter} />
+                </div>
+              </div>
+            </Modal.Body>
+            <Modal.Footer>
+              <div className="d-flex justify-content-between w-100">
+                <div>
+                  <span className="text-muted me-3">
+                    Selected:{" "}
+                    {
+                      selectedParameters.filter(
+                        (item) =>
+                          !item.isDeleted &&
+                          item.category === currentParameterCategory
+                      ).length
+                    }
+                  </span>
+                </div>
+                <div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setParameterModal(false)}
+                    className="me-2"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </Modal.Footer>
+          </Modal>
+        </>
+      ) : (
+        <div className="no-access">
+          <img src={NoAccess} alt="NoAccess" className="no-access-img" />
+          <h3>You don't have access to this function.</h3>
+        </div>
+      )}
+
+      {/*remarks history Modal */}
+      <Modal
+        show={showRemarksHistoryModal}
+        onHide={handleClose}
+        backdrop="static"
+        size="xl"
+        centered
+      >
+        <Modal.Header closeButton className="bg-light">
+          <Modal.Title className="h5 fw-bold">Remarks History</Modal.Title>
+        </Modal.Header>
+        <Modal.Body
+          className="p-4 scrollable-contents"
+          style={{
+            maxHeight: "575px",
+            overflowY: "scroll",
+          }}
+        >
+          <div className="remarks-history-container">
+            {remarksHistoryData.length > 0 ? (
+              <div className="d-flex flex-column gap-4">
+                {remarksHistoryData.map((history, index) =>
+                  deletedRemarks.includes(history.id) ? (
+                    <div key={index} className="card bg-light bg-opacity-25">
+                      <div>
+                        <div
+                          className="card-body position-relative"
+                          style={{ opacity: 0.35 }}
+                        >
+                          <div className="row align-items-center">
+                            <div className="col-md-12">
+                              <div className="mb-3 d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2 pe-5">
+                                <span className="p-2 fs-6 badge bg-secondary text-light">
+                                  {history.fullName}
+                                </span>
+                                <div className="text-muted d-flex flex-column flex-sm-row gap-2 align-items-start align-items-sm-center">
+                                  <div className="fw-bold">
+                                    {dayjs(history.createdAt).format(
+                                      "MMMM DD, YYYY"
+                                    )}
+                                  </div>
+                                  <div className="small d-none d-sm-block">
+                                    •
+                                  </div>
+                                  <div className="small">
+                                    {new Date(
+                                      history.createdAt
+                                    ).toLocaleTimeString("en-US", {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                      hour12: true,
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="form-floating position-relative">
+                                <textarea
+                                  className="form-control border border-danger text-muted fst-italic bg-white"
+                                  rows="3"
+                                  value={history.remarks || ""}
+                                  readOnly
+                                  placeholder="Remarks"
+                                  style={{
+                                    height: "100px",
+                                    backgroundColor: "#f8f9fa",
+                                    opacity: 0.6,
+                                  }}
+                                />
+                                <label className="text-muted">
+                                  Remarks (Deleted)
+                                </label>
+
+                                <span
+                                  className="position-absolute top-0 end-0 mt-1 me-2 badge bg-danger text-white"
+                                  style={{ fontSize: "0.75rem" }}
+                                >
+                                  Deleted
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreRemarks(history.id)}
+                          className="btn btn-sm btn-outline-primary position-absolute d-flex align-items-center justify-content-center p-0"
+                          style={{
+                            top: "1rem",
+                            right: "1rem",
+                            width: "32px",
+                            height: "32px",
+                          }}
+                          title="Restore remark"
+                        >
+                          <i className="fas fa-undo-alt"></i>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={index} className="card shadow-sm">
+                      <div className="card-body position-relative">
+                        <button
+                          onClick={() => handleDeleteRemarks(history.id)}
+                          className="btn btn-sm btn-outline-danger position-absolute d-flex align-items-center justify-content-center p-0"
+                          style={{
+                            top: "1rem",
+                            right: "1rem",
+                            width: "32px",
+                            height: "32px",
+                          }}
+                          title="Delete remark"
+                        >
+                          <i className="fas fa-trash-alt"></i>
+                        </button>
+
+                        <div className="row align-items-center">
+                          <div className="col-md-12">
+                            <div className="mb-3 d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2 pe-5">
+                              <span className="p-2 fs-6 badge bg-secondary bg-opacity-10 text-black">
+                                {history.fullName}
+                              </span>
+                              <div className="text-muted d-flex flex-column flex-sm-row gap-2 align-items-start align-items-sm-center">
+                                <div className="fw-bold">
+                                  {dayjs(history.createdAt).format(
+                                    "MMMM DD, YYYY"
+                                  )}
+                                </div>
+                                <div className="small d-none d-sm-block">•</div>
+                                <div className="small">
+                                  {new Date(
+                                    history.createdAt
+                                  ).toLocaleTimeString("en-US", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                    hour12: true,
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="form-floating">
+                              <textarea
+                                className="form-control bg-light border-0"
+                                rows="3"
+                                value={history.remarks || ""}
+                                readOnly
+                                placeholder="Remarks"
+                                style={{ height: "100px" }}
+                              />
+                              <label>Remarks</label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-5">
+                <h5 className="text-muted">No previous remarks found</h5>
+              </div>
+            )}
+          </div>
+        </Modal.Body>
+      </Modal>
+    </div>
+  );
+};
+
+export default CreateUpdateFormulation;
