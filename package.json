@@ -1,0 +1,29 @@
+{
+  "name": "my-fullstack-app",
+  "version": "1.0.0",
+  "description": "Full-stack React + Express application",
+  "private": true,
+  "scripts": {
+    "install-frontend": "cd frontend && npm install",
+    "install-backend": "cd backend && npm install",
+    "install-all": "npm run install-frontend && npm run install-backend",
+    "build-frontend": "cd frontend && npm run build",
+    "build": "npm run build-frontend",
+    "test-frontend": "cd frontend && npm test -- --coverage --watchAll=false",
+    "test-backend": "cd backend && npm test",
+    "test": "npm run test-frontend && npm run test-backend",
+    "start": "cd backend && npm run start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "browser-image-compression": "^2.0.2"
+  }
+}
